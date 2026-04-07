@@ -903,6 +903,44 @@
   </div>
 </div>
 
+<!-- ═══════════ WELCOME SETUP OVERLAY ═══════════ -->
+<div id="welcome-overlay" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:500;overflow-y:auto;">
+  <div style="max-width:460px;margin:0 auto;padding:40px 20px 100px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:48px;margin-bottom:12px;">&#128663;</div>
+      <h1 style="font-size:26px;font-weight:700;letter-spacing:-0.3px;">Welcome to DriveLog</h1>
+      <p style="font-size:14px;color:var(--text2);margin-top:6px;">Let's set up your vehicle to get started</p>
+    </div>
+
+    <div class="form-group">
+      <label>What's your vehicle?</label>
+      <input type="text" id="welcome-vehicle" placeholder="e.g. 2024 Toyota Tacoma" style="font-size:16px;">
+    </div>
+
+    <div class="form-group">
+      <label>Fuel type</label>
+      <select id="welcome-fuel-type" style="font-size:16px;">
+        <option value="diesel">Diesel</option>
+        <option value="gas">Gasoline</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Current odometer reading</label>
+      <input type="number" id="welcome-odo" placeholder="e.g. 15000" step="0.1" inputmode="decimal" style="font-size:16px;">
+    </div>
+
+    <div class="form-group">
+      <label>App name (optional)</label>
+      <input type="text" id="welcome-app-name" placeholder="DriveLog" style="font-size:16px;">
+    </div>
+
+    <button class="submit-btn" style="background:var(--blue);color:#fff;margin-top:12px;" onclick="completeWelcome()">Get Started</button>
+
+    <p style="font-size:12px;color:var(--muted);text-align:center;margin-top:16px;">You can change these anytime in the Setup tab</p>
+  </div>
+</div>
+
 <!-- Toast notification -->
 <div class="toast" id="toast"></div>
 
@@ -964,6 +1002,7 @@ try {
     if (s.vehicleName) settings.vehicleName = s.vehicleName;
     if (s.appName) settings.appName = s.appName;
     if (s.fuelType) settings.fuelType = s.fuelType;
+    if (s.setupComplete) settings.setupComplete = true;
   }
 } catch(e) {}
 
@@ -1024,6 +1063,30 @@ function updateDefVisibility() {
   }
 }
 
+// ═══════════ WELCOME FLOW ═══════════
+function completeWelcome() {
+  settings.vehicleName = document.getElementById('welcome-vehicle').value.trim();
+  settings.fuelType = document.getElementById('welcome-fuel-type').value;
+  const odo = parseFloat(document.getElementById('welcome-odo').value);
+  if (odo) settings.lastOdo = odo;
+  const appName = document.getElementById('welcome-app-name').value.trim();
+  if (appName) settings.appName = appName;
+  settings.setupComplete = true;
+  saveSettings2();
+
+  // Sync to settings screen inputs
+  document.getElementById('setting-url').value = settings.url;
+  document.getElementById('setting-odo').value = settings.lastOdo || '';
+  document.getElementById('setting-app-name').value = settings.appName || '';
+  document.getElementById('setting-vehicle').value = settings.vehicleName || '';
+  document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
+
+  updateHeader();
+  updateDefVisibility();
+  document.getElementById('welcome-overlay').style.display = 'none';
+  showToast('Setup complete — start logging!');
+}
+
 // Load settings into UI
 window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setting-url').value = settings.url;
@@ -1033,6 +1096,12 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
   updateHeader();
   updateDefVisibility();
+
+  // Show welcome overlay on first visit
+  if (!settings.setupComplete) {
+    document.getElementById('welcome-overlay').style.display = 'block';
+  }
+
   // Default date to today
   const today = new Date().toISOString().split('T')[0];
   document.querySelectorAll('input[type="date"]').forEach(el => { if (!el.value) el.value = today; });
