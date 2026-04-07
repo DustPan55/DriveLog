@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Google Sheets Setup Guide — DriveLog</title>
+<style>
+  :root { --bg: #0f1117; --card: #1a1d2e; --border: #2a2e45; --text: #e8eaf0; --text2: #8b8fa3; --blue: #4f8cff; --green: #34d399; --orange: #fb923c; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); max-width: 700px; margin: 0 auto; padding: 24px; line-height: 1.7; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  h1 span { color: var(--blue); }
+  .subtitle { color: var(--text2); font-size: 14px; margin-bottom: 32px; }
+  h2 { font-size: 18px; margin: 32px 0 12px; color: var(--orange); }
+  h2 .num { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: var(--orange); color: #000; border-radius: 50%; font-size: 14px; font-weight: 700; margin-right: 8px; }
+  p { margin-bottom: 12px; font-size: 14px; color: var(--text2); }
+  ol, ul { padding-left: 24px; margin-bottom: 16px; }
+  li { margin-bottom: 8px; font-size: 14px; color: var(--text2); }
+  li strong { color: var(--text); }
+  code { background: var(--card); padding: 2px 8px; border-radius: 4px; font-size: 13px; color: var(--green); }
+  pre {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    overflow-x: auto;
+    margin: 12px 0 20px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .tip {
+    background: rgba(79,140,255,0.1);
+    border-left: 3px solid var(--blue);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 13px;
+    color: var(--text2);
+  }
+  .tip strong { color: var(--blue); }
+  .warn {
+    background: rgba(251,146,60,0.1);
+    border-left: 3px solid var(--orange);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 13px;
+    color: var(--text2);
+  }
+  .warn strong { color: var(--orange); }
+</style>
+</head>
+<body>
+
+<h1>DriveLog — Google Sheets Setup</h1>
+<p class="subtitle">Connect your tracker app to Google Sheets so data flows automatically</p>
+
+<h2><span class="num">1</span> Create Your Google Sheet</h2>
+<ol>
+  <li>Go to <strong>sheets.google.com</strong> and create a new spreadsheet</li>
+  <li>Rename it to <strong>DriveLog</strong> (or whatever you like)</li>
+  <li>Create <strong>3 sheets</strong> (tabs) with these exact names:
+    <ul>
+      <li><code>Milage Tracker</code></li>
+      <li><code>Reimbursement Tracker</code></li>
+      <li><code>Maintenance Tracker</code></li>
+    </ul>
+  </li>
+  <li>Add headers to each sheet:</li>
+</ol>
+
+<p><strong>Milage Tracker</strong> — Row 1:</p>
+<pre>Date | Odometer | Price/Gal | Spend | Volume | City | Gas Station | Miles Driven | Comments</pre>
+
+<p><strong>Reimbursement Tracker</strong> — Row 1:</p>
+<pre>Date Submitted | Milage | Value | Date Received</pre>
+
+<p><strong>Maintenance Tracker</strong> — Row 1:</p>
+<pre>Date | Service | Spend | Milage | Notes</pre>
+
+<div class="tip"><strong>Tip:</strong> You can copy your existing data from the Excel file into this Google Sheet to start with your current records.</div>
+
+<h2><span class="num">2</span> Add the Apps Script</h2>
+<ol>
+  <li>In your Google Sheet, go to <strong>Extensions → Apps Script</strong></li>
+  <li>Delete any existing code in the editor</li>
+  <li>Paste the following code:</li>
+</ol>
+
+<pre>
+function doPost(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  var data = JSON.parse(e.postData.contents);
+
+  var sheetMap = {
+    'fuel': 'Milage Tracker',
+    'reimbursement': 'Reimbursement Tracker',
+    'maintenance': 'Maintenance Tracker'
+  };
+
+  var targetSheet = sheet.getSheetByName(sheetMap[data.sheet]);
+  if (!targetSheet) {
+    return ContentService.createTextOutput(
+      JSON.stringify({status: 'error', message: 'Sheet not found'})
+    ).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  targetSheet.appendRow(data.data);
+
+  return ContentService.createTextOutput(
+    JSON.stringify({status: 'success'})
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+
+function doGet(e) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet();
+  var result = {};
+
+  var sheets = ['Milage Tracker', 'Reimbursement Tracker', 'Maintenance Tracker'];
+  sheets.forEach(function(name) {
+    var s = sheet.getSheetByName(name);
+    if (s) {
+      var data = s.getDataRange().getValues();
+      result[name] = data;
+    }
+  });
+
+  return ContentService.createTextOutput(
+    JSON.stringify(result)
+  ).setMimeType(ContentService.MimeType.JSON);
+}
+</pre>
+
+<h2><span class="num">3</span> Deploy as Web App</h2>
+<ol>
+  <li>Click <strong>Deploy → New deployment</strong></li>
+  <li>Click the gear icon next to "Select type" and choose <strong>Web app</strong></li>
+  <li>Set these options:
+    <ul>
+      <li><strong>Description:</strong> DriveLog</li>
+      <li><strong>Execute as:</strong> Me</li>
+      <li><strong>Who has access:</strong> Anyone</li>
+    </ul>
+  </li>
+  <li>Click <strong>Deploy</strong></li>
+  <li>Click <strong>Authorize access</strong> and go through the Google permissions flow</li>
+  <li><strong>Copy the Web app URL</strong> — it looks like:<br>
+    <code>https://script.google.com/macros/s/AKfyc.../exec</code>
+  </li>
+</ol>
+
+<div class="warn"><strong>Important:</strong> If Google shows a "This app isn't verified" warning, click <strong>Advanced → Go to DriveLog (unsafe)</strong>. This is normal for personal scripts.</div>
+
+<h2><span class="num">4</span> Connect the Tracker App</h2>
+<ol>
+  <li>Open your <strong>DriveLog app</strong></li>
+  <li>Tap the <strong>SETUP</strong> tab at the bottom</li>
+  <li>Paste the Web app URL into the <strong>Sheets URL</strong> field</li>
+  <li>Tap <strong>Save Settings</strong></li>
+  <li>Try logging a test entry — check your Google Sheet to confirm it appeared!</li>
+</ol>
+
+<h2><span class="num">5</span> Connect the Dashboard (Optional)</h2>
+<p>Once your data lives in Google Sheets, your dashboard can pull from it live. Just ask Claude to rebuild the dashboard to read from your Google Sheet URL, and it will auto-refresh whenever you reload the page.</p>
+
+<div class="tip"><strong>Tip:</strong> Bookmark the tracker app on your phone's home screen for quick access. In Safari, tap the share icon → "Add to Home Screen". In Chrome, tap the menu → "Add to Home screen".</div>
+
+</body>
+</html>

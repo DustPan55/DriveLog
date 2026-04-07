@@ -1,0 +1,1558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>DriveLog</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d2e;
+    --card-hover: #222640;
+    --border: #2a2e45;
+    --text: #e8eaf0;
+    --text2: #8b8fa3;
+    --muted: #5c6078;
+    --blue: #4f8cff;
+    --green: #34d399;
+    --orange: #fb923c;
+    --red: #f87171;
+    --purple: #a78bfa;
+    --cyan: #22d3ee;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    max-width: 500px;
+    margin: 0 auto;
+    padding: 0 0 100px 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Header */
+  .app-header {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--bg);
+    z-index: 100;
+  }
+
+  .app-header h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .app-header h1 span { color: var(--blue); }
+
+  .app-header p {
+    font-size: 13px;
+    color: var(--text2);
+    margin-top: 2px;
+  }
+
+  /* Tab bar at bottom */
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--card);
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: center;
+    padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+    z-index: 200;
+  }
+
+  .nav-btn {
+    flex: 1;
+    max-width: 140px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 4px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.2s;
+    letter-spacing: 0.3px;
+  }
+
+  .nav-btn.active { color: var(--blue); }
+  .nav-btn:hover { color: var(--text); }
+
+  .nav-btn svg {
+    width: 24px;
+    height: 24px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* Screens */
+  .screen { display: none; padding: 20px; }
+  .screen.active { display: block; }
+
+  /* Form styles */
+  .form-group {
+    margin-bottom: 18px;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 6px;
+  }
+
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    width: 100%;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.2s;
+    -webkit-appearance: none;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus {
+    border-color: var(--blue);
+  }
+
+  .form-group textarea {
+    resize: vertical;
+    min-height: 70px;
+  }
+
+  .form-group select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8fa3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 40px;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .section-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .section-title .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+
+  .submit-btn {
+    width: 100%;
+    padding: 16px;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.1s, opacity 0.2s;
+    margin-top: 8px;
+    letter-spacing: 0.2px;
+  }
+
+  .submit-btn:active { transform: scale(0.98); }
+  .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-fuel { background: var(--orange); color: #000; }
+  .btn-reimb { background: var(--green); color: #000; }
+  .btn-maint { background: var(--purple); color: #000; }
+  .btn-def { background: var(--cyan); color: #000; }
+  .btn-miles { background: var(--blue); color: #fff; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(-100px);
+    background: var(--green);
+    color: #000;
+    padding: 14px 28px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 14px;
+    z-index: 999;
+    transition: transform 0.3s ease;
+    white-space: nowrap;
+  }
+
+  .toast.show { transform: translateX(-50%) translateY(0); }
+  .toast.error { background: var(--red); }
+
+  /* Recent entries */
+  .recent-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+  }
+
+  .recent-card .rc-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+  }
+
+  .recent-card .rc-label {
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  .recent-card .rc-amount {
+    font-weight: 700;
+    font-size: 15px;
+  }
+
+  .recent-card .rc-meta {
+    font-size: 12px;
+    color: var(--text2);
+  }
+
+  .rc-type {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  .rc-type.fuel { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .rc-type.reimb { background: rgba(52,211,153,0.15); color: var(--green); }
+  .rc-type.maint { background: rgba(167,139,250,0.15); color: var(--purple); }
+  .rc-type.def { background: rgba(34,211,238,0.15); color: var(--cyan); }
+  .rc-type.miles { background: rgba(79,140,255,0.15); color: var(--blue); }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--muted);
+  }
+
+  .empty-state svg {
+    width: 48px;
+    height: 48px;
+    stroke: var(--muted);
+    fill: none;
+    stroke-width: 1.2;
+    margin-bottom: 12px;
+  }
+
+  .empty-state p { font-size: 14px; }
+
+  /* Setup banner */
+  .setup-banner {
+    background: rgba(79,140,255,0.1);
+    border: 1px solid rgba(79,140,255,0.25);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 20px;
+  }
+
+  .setup-banner h3 {
+    font-size: 14px;
+    color: var(--blue);
+    margin-bottom: 6px;
+  }
+
+  .setup-banner p {
+    font-size: 12px;
+    color: var(--text2);
+    line-height: 1.5;
+  }
+
+  .setup-banner code {
+    background: var(--bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: var(--text);
+  }
+
+  /* Settings */
+  .setting-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .setting-row label {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .setting-row input {
+    flex: 1;
+    max-width: 260px;
+    padding: 10px 12px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 13px;
+    font-family: monospace;
+    outline: none;
+    margin-left: 12px;
+  }
+
+  .setting-row input:focus { border-color: var(--blue); }
+
+  .save-settings-btn {
+    margin-top: 16px;
+    padding: 12px 24px;
+    background: var(--blue);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  /* Quick-fill odometer */
+  .autofill-hint {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* Dashboard */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+
+  .kpi-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+
+  .kpi-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text2);
+    margin-bottom: 6px;
+  }
+
+  .kpi-value {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+  }
+
+  .kpi-sub {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+  }
+
+  .kpi-value.v-blue { color: var(--blue); }
+  .kpi-value.v-green { color: var(--green); }
+  .kpi-value.v-orange { color: var(--orange); }
+  .kpi-value.v-purple { color: var(--purple); }
+  .kpi-value.v-cyan { color: var(--cyan); }
+  .kpi-value.v-red { color: var(--red); }
+
+  .dash-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+
+  .dash-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .chart-wrap {
+    position: relative;
+    height: 220px;
+  }
+
+  .dash-tab-nav {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 16px;
+    background: var(--card);
+    border-radius: 10px;
+    padding: 3px;
+    overflow-x: auto;
+  }
+
+  .dash-tab-btn {
+    padding: 8px 14px;
+    border: none;
+    background: transparent;
+    color: var(--text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 8px;
+    white-space: nowrap;
+    transition: all 0.2s;
+  }
+
+  .dash-tab-btn.active { background: var(--blue); color: #fff; }
+
+  .dash-section { display: none; }
+  .dash-section.active { display: block; }
+
+  .dash-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+
+  .dash-table th {
+    text-align: left;
+    padding: 8px 6px;
+    font-weight: 600;
+    color: var(--text2);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dash-table td {
+    padding: 10px 6px;
+    border-bottom: 1px solid rgba(42,46,69,0.4);
+  }
+
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    background: rgba(79,140,255,0.06);
+    border-radius: 8px;
+    margin-top: 10px;
+  }
+
+  .summary-label { font-size: 12px; color: var(--text2); }
+  .summary-val { font-size: 16px; font-weight: 700; }
+
+  /* History panel */
+  .history-toggle {
+    width: 100%;
+    padding: 12px;
+    margin-top: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--text2);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .history-toggle:hover { color: var(--text); border-color: var(--blue); }
+
+  .history-panel {
+    display: none;
+    margin-top: 14px;
+  }
+
+  .history-panel.open { display: block; }
+
+  .hist-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+
+  .hist-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 6px;
+  }
+
+  .hist-card-info { flex: 1; }
+
+  .hist-card-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: 10px;
+  }
+
+  .hist-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .hist-btn-edit {
+    background: rgba(79,140,255,0.15);
+    color: var(--blue);
+  }
+
+  .hist-btn-del {
+    background: rgba(248,113,113,0.15);
+    color: var(--red);
+  }
+
+  .hist-btn-edit:hover { background: rgba(79,140,255,0.3); }
+  .hist-btn-del:hover { background: rgba(248,113,113,0.3); }
+
+  .confirm-del {
+    background: var(--red);
+    color: #fff;
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-right: 8px;
+  }
+
+  .cancel-del {
+    background: var(--card);
+    color: var(--text2);
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <h1 id="app-title">DriveLog</h1>
+  <p>Log fuel, reimbursements & maintenance</p>
+</div>
+
+<!-- ═══════════ FUEL SCREEN ═══════════ -->
+<div id="screen-fuel" class="screen active">
+  <div class="section-title"><span class="dot" style="background:var(--orange)"></span> Log Fuel Fill-Up</div>
+
+  <div class="form-group">
+    <label>Date</label>
+    <input type="date" id="fuel-date">
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>Odometer</label>
+      <input type="number" id="fuel-odo" placeholder="" step="0.1" inputmode="decimal">
+    </div>
+    <div class="form-group">
+      <label>Miles Driven</label>
+      <input type="number" id="fuel-miles" placeholder="Auto-calc" step="0.1" inputmode="decimal">
+      <div class="autofill-hint">Leave blank to auto-calculate</div>
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>Price/Gallon ($)</label>
+      <input type="number" id="fuel-ppg" placeholder="" step="0.01" inputmode="decimal">
+    </div>
+    <div class="form-group">
+      <label>Total Spend ($)</label>
+      <input type="number" id="fuel-spend" placeholder="" step="0.01" inputmode="decimal">
+    </div>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>Gallons</label>
+      <input type="number" id="fuel-gallons" placeholder="Auto-calc" step="0.01" inputmode="decimal">
+      <div class="autofill-hint">Leave blank to auto-calculate</div>
+    </div>
+    <div class="form-group">
+      <label>City</label>
+      <input type="text" id="fuel-city" placeholder="">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Gas Station</label>
+    <input type="text" id="fuel-station" placeholder="">
+  </div>
+
+  <div class="form-group">
+    <label>Comments</label>
+    <textarea id="fuel-comments" placeholder="Optional notes..."></textarea>
+  </div>
+
+  <button class="submit-btn btn-fuel" onclick="submitFuel()">Log Fill-Up</button>
+  <button class="history-toggle" onclick="toggleHistory('fuel')">View Fuel History</button>
+  <div id="history-fuel" class="history-panel"></div>
+</div>
+
+<!-- ═══════════ REIMBURSEMENT SCREEN ═══════════ -->
+<div id="screen-reimb" class="screen">
+  <div class="section-title"><span class="dot" style="background:var(--green)"></span> Log Reimbursement</div>
+
+  <div class="form-group">
+    <label>Date Submitted</label>
+    <input type="date" id="reimb-date">
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>Miles Claimed</label>
+      <input type="number" id="reimb-miles" placeholder="" step="0.01" inputmode="decimal">
+    </div>
+    <div class="form-group">
+      <label>Value ($)</label>
+      <input type="number" id="reimb-value" placeholder="" step="0.01" inputmode="decimal">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Date Received (leave blank if pending)</label>
+    <input type="date" id="reimb-received">
+  </div>
+
+  <button class="submit-btn btn-reimb" onclick="submitReimb()">Log Reimbursement</button>
+  <button class="history-toggle" onclick="toggleHistory('reimb')">View Reimbursement History</button>
+  <div id="history-reimb" class="history-panel"></div>
+</div>
+
+<!-- ═══════════ MAINTENANCE SCREEN ═══════════ -->
+<div id="screen-maint" class="screen">
+  <div class="section-title"><span class="dot" style="background:var(--purple)"></span> Log Maintenance</div>
+
+  <div class="form-group">
+    <label>Date</label>
+    <input type="date" id="maint-date">
+  </div>
+
+  <div class="form-group">
+    <label>Service</label>
+    <select id="maint-service">
+      <option value="">Select service type...</option>
+      <option value="Oil Change">Oil Change</option>
+      <option value="Fuel Filter Change">Fuel Filter Change</option>
+      <option value="Cabin Air Filter Change">Cabin Air Filter Change</option>
+      <option value="Engine Filter Change">Engine Filter Change</option>
+      <option value="Tire Rotation">Tire Rotation</option>
+      <option value="Brake Service">Brake Service</option>
+      <option value="Transmission Service">Transmission Service</option>
+      <option value="Other">Other (specify in notes)</option>
+    </select>
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>Cost ($)</label>
+      <input type="number" id="maint-spend" placeholder="" step="0.01" inputmode="decimal">
+    </div>
+    <div class="form-group">
+      <label>Odometer</label>
+      <input type="number" id="maint-odo" placeholder="" step="1" inputmode="numeric">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Notes</label>
+    <textarea id="maint-notes" placeholder="Optional notes..."></textarea>
+  </div>
+
+  <button class="submit-btn btn-maint" onclick="submitMaint()">Log Maintenance</button>
+  <button class="history-toggle" onclick="toggleHistory('maint')">View Maintenance History</button>
+  <div id="history-maint" class="history-panel"></div>
+</div>
+
+<!-- ═══════════ DEF SCREEN ═══════════ -->
+<div id="screen-def" class="screen">
+  <div class="section-title"><span class="dot" style="background:var(--cyan)"></span> Log DEF Fill</div>
+
+  <div class="form-group">
+    <label>Date</label>
+    <input type="date" id="def-date">
+  </div>
+
+  <div class="form-row">
+    <div class="form-group">
+      <label>DEF Volume (Gallons)</label>
+      <input type="number" id="def-volume" placeholder="" step="0.01" inputmode="decimal">
+    </div>
+    <div class="form-group">
+      <label>Odometer</label>
+      <input type="number" id="def-odo" placeholder="" step="0.1" inputmode="decimal">
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label>Spend ($)</label>
+    <input type="number" id="def-spend" placeholder="" step="0.01" inputmode="decimal">
+  </div>
+
+  <button class="submit-btn btn-def" onclick="submitDef()">Log DEF Fill</button>
+  <button class="history-toggle" onclick="toggleHistory('def')">View DEF History</button>
+  <div id="history-def" class="history-panel"></div>
+</div>
+
+
+<!-- ═══════════ MILES SCREEN ═══════════ -->
+<div id="screen-miles" class="screen">
+  <div class="section-title"><span class="dot" style="background:var(--blue)"></span> Log Miles</div>
+
+  <div class="form-group">
+    <label>Date</label>
+    <input type="date" id="miles-date">
+  </div>
+
+  <div class="form-group">
+    <label>Odometer</label>
+    <input type="number" id="miles-odo" placeholder="" step="0.1" inputmode="decimal">
+  </div>
+
+  <div class="form-group">
+    <label>Notes</label>
+    <textarea id="miles-notes" placeholder="Optional notes..."></textarea>
+  </div>
+
+  <button class="submit-btn btn-miles" onclick="submitMiles()">Log Miles</button>
+  <button class="history-toggle" onclick="toggleHistory('miles')">View Miles History</button>
+  <div id="history-miles" class="history-panel"></div>
+</div>
+
+<!-- ═══════════ DASHBOARD SCREEN ═══════════ -->
+<div id="screen-dash" class="screen">
+  <div class="section-title"><span class="dot" style="background:var(--blue)"></span> Dashboard</div>
+
+  <div class="dash-tab-nav">
+    <button class="dash-tab-btn active" onclick="switchDashTab('overview',this)">Overview</button>
+    <button class="dash-tab-btn" onclick="switchDashTab('fuel',this)">Fuel</button>
+    <button class="dash-tab-btn" onclick="switchDashTab('reimb',this)">Reimburse</button>
+    <button class="dash-tab-btn" onclick="switchDashTab('maint',this)">Maint</button>
+    <button class="dash-tab-btn" id="dash-tab-def" onclick="switchDashTab('def',this)">DEF</button>
+    <button class="dash-tab-btn" onclick="switchDashTab('miles',this)">Miles</button>
+  </div>
+
+  <!-- Overview Sub-tab -->
+  <div id="dash-overview" class="dash-section active">
+    <div class="kpi-row" id="kpi-overview"></div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--orange)"></span> Spend Breakdown</div>
+      <div class="chart-wrap"><canvas id="chart-spend-pie"></canvas></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--green)"></span> Reimbursement Status</div>
+      <div class="chart-wrap"><canvas id="chart-reimb-pie"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Fuel Sub-tab -->
+  <div id="dash-fuel" class="dash-section">
+    <div class="kpi-row" id="kpi-fuel"></div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--orange)"></span> Fuel Log</div>
+      <div style="overflow-x:auto;" id="fuel-table-wrap"></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--cyan)"></span> MPG Trend</div>
+      <div class="chart-wrap"><canvas id="chart-mpg"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Reimbursement Sub-tab -->
+  <div id="dash-reimb" class="dash-section">
+    <div class="kpi-row" id="kpi-reimb"></div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--green)"></span> Reimbursement Log</div>
+      <div style="overflow-x:auto;" id="reimb-table-wrap"></div>
+    </div>
+  </div>
+
+  <!-- Maintenance Sub-tab -->
+  <div id="dash-maint" class="dash-section">
+    <div class="kpi-row" id="kpi-maint"></div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--purple)"></span> Service History</div>
+      <div id="maint-table-wrap"></div>
+    </div>
+  </div>
+
+  <!-- Miles Sub-tab -->
+  <div id="dash-miles" class="dash-section">
+    <div class="kpi-row" id="kpi-miles"></div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--blue)"></span> Miles Log</div>
+      <div style="overflow-x:auto;" id="miles-table-wrap"></div>
+    </div>
+  </div>
+
+  <!-- DEF Sub-tab -->
+  <div id="dash-def" class="dash-section">
+    <div class="kpi-row" id="kpi-def"></div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--cyan)"></span> DEF Log</div>
+      <div style="overflow-x:auto;" id="def-table-wrap"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ SETTINGS SCREEN ═══════════ -->
+<div id="screen-settings" class="screen">
+  <div class="section-title"><span class="dot" style="background:var(--blue)"></span> Settings</div>
+
+  <div class="setup-banner">
+    <h3>Google Sheets Setup</h3>
+    <p>To connect this app to Google Sheets, you'll need to create an Apps Script web app. See the setup guide that came with this app for step-by-step instructions. Once deployed, paste your web app URL below.</p>
+  </div>
+
+  <div class="setting-row">
+    <label>App Name</label>
+    <input type="text" id="setting-app-name" placeholder="My DriveLog" style="font-family:inherit">
+  </div>
+
+  <div class="setting-row">
+    <label>Vehicle Name</label>
+    <input type="text" id="setting-vehicle" placeholder="e.g. 2025 Ford F-250" style="font-family:inherit">
+  </div>
+
+  <div class="setting-row">
+    <label>Fuel Type</label>
+    <select id="setting-fuel-type" style="flex:1;max-width:260px;padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;outline:none;margin-left:12px;-webkit-appearance:none;background-image:url(&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b8fa3' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E&quot;);background-repeat:no-repeat;background-position:right 12px center;padding-right:32px;">
+      <option value="diesel">Diesel</option>
+      <option value="gas">Gasoline</option>
+    </select>
+  </div>
+
+  <div class="setting-row">
+    <label>Last Odometer</label>
+    <input type="number" id="setting-odo" placeholder="0" step="0.1">
+  </div>
+
+  <div class="setting-row">
+    <label>Sheets URL</label>
+    <input type="url" id="setting-url" placeholder="https://script.google.com/...">
+  </div>
+
+  <button class="save-settings-btn" onclick="saveSettings()">Save Settings</button>
+
+  <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--border);">
+    <p style="font-size:12px;color:var(--muted);">Data is stored in your browser and sent to your Google Sheet when connected. Entries are queued offline and synced when connection is available.</p>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+
+<!-- Bottom navigation -->
+<div class="bottom-nav">
+  <button class="nav-btn active" onclick="switchScreen('fuel', this)">
+    <svg viewBox="0 0 24 24"><path d="M3 22V8l6-6 6 6v14"/><path d="M9 22V12h12v10"/><path d="M21 12l-3-3"/><path d="M18 9V3h3v6"/></svg>
+    FUEL
+  </button>
+  <button class="nav-btn" onclick="switchScreen('reimb', this)">
+    <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+    REIMBURSE
+  </button>
+  <button class="nav-btn" onclick="switchScreen('maint', this)">
+    <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+    MAINT
+  </button>
+  <button class="nav-btn" id="nav-def" onclick="switchScreen('def', this)">
+    <svg viewBox="0 0 24 24"><path d="M6 2h6v6l3 3-3 3v6H6v-6L3 11l3-3V2z"/><path d="M8 16h4"/><path d="M8 12h4"/></svg>
+    DEF
+  </button>
+  <button class="nav-btn" onclick="switchScreen('miles', this)">
+    <svg viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+    MILES
+  </button>
+  <button class="nav-btn" onclick="switchScreen('dash', this)">
+    <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="4" rx="1"/><rect x="14" y="10" width="7" height="11" rx="1"/><rect x="3" y="13" width="7" height="8" rx="1"/></svg>
+    DASH
+  </button>
+  <button class="nav-btn" onclick="switchScreen('settings', this)">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+    SETUP
+  </button>
+</div>
+
+<script>
+// ═══════════ STATE ═══════════
+let entries = [];
+let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel' };
+
+// No seed data — users start fresh
+const SEED_ENTRIES = [];
+
+// Load from localStorage on init
+try {
+  const saved = localStorage.getItem('vehicleEntries');
+  if (saved) {
+    entries = JSON.parse(saved);
+  } else {
+    // First visit — load seed data
+    entries = [...SEED_ENTRIES];
+    localStorage.setItem('vehicleEntries', JSON.stringify(entries));
+  }
+  const savedSettings = localStorage.getItem('vehicleSettings');
+  if (savedSettings) {
+    const s = JSON.parse(savedSettings);
+    if (s.url) settings.url = s.url;
+    if (s.lastOdo) settings.lastOdo = s.lastOdo;
+    if (s.vehicleName) settings.vehicleName = s.vehicleName;
+    if (s.appName) settings.appName = s.appName;
+    if (s.fuelType) settings.fuelType = s.fuelType;
+  }
+} catch(e) {}
+
+function saveEntries() {
+  localStorage.setItem('vehicleEntries', JSON.stringify(entries));
+}
+function saveSettings2() {
+  localStorage.setItem('vehicleSettings', JSON.stringify(settings));
+}
+
+// ═══════════ NAVIGATION ═══════════
+function switchScreen(screen, btn) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('screen-' + screen).classList.add('active');
+  btn.classList.add('active');
+  if (screen === 'dash') renderDashboard();
+}
+
+// ═══════════ TOAST ═══════════
+function showToast(msg, isError) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast' + (isError ? ' error' : '');
+  setTimeout(() => t.classList.add('show'), 10);
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ═══════════ SETTINGS ═══════════
+function saveSettings() {
+  settings.url = document.getElementById('setting-url').value.trim();
+  const odo = parseFloat(document.getElementById('setting-odo').value);
+  if (odo) settings.lastOdo = odo;
+  settings.appName = document.getElementById('setting-app-name').value.trim();
+  settings.vehicleName = document.getElementById('setting-vehicle').value.trim();
+  settings.fuelType = document.getElementById('setting-fuel-type').value;
+  saveSettings2();
+  updateHeader();
+  updateDefVisibility();
+  showToast('Settings saved!');
+}
+
+function updateHeader() {
+  document.getElementById('app-title').textContent = settings.appName || 'DriveLog';
+  document.title = settings.appName || 'DriveLog';
+}
+
+function updateDefVisibility() {
+  const isDiesel = settings.fuelType === 'diesel';
+  document.getElementById('nav-def').style.display = isDiesel ? '' : 'none';
+  document.getElementById('dash-tab-def').style.display = isDiesel ? '' : 'none';
+  // If DEF screen is active and user switches to gas, go to fuel screen
+  if (!isDiesel && document.getElementById('screen-def').classList.contains('active')) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('screen-fuel').classList.add('active');
+    document.querySelector('.nav-btn').classList.add('active');
+  }
+}
+
+// Load settings into UI
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('setting-url').value = settings.url;
+  document.getElementById('setting-odo').value = settings.lastOdo || '';
+  document.getElementById('setting-app-name').value = settings.appName || '';
+  document.getElementById('setting-vehicle').value = settings.vehicleName || '';
+  document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
+  updateHeader();
+  updateDefVisibility();
+  // Default date to today
+  const today = new Date().toISOString().split('T')[0];
+  document.querySelectorAll('input[type="date"]').forEach(el => { if (!el.value) el.value = today; });
+});
+
+// ═══════════ SUBMIT FUNCTIONS ═══════════
+function submitFuel() {
+  const date = document.getElementById('fuel-date').value;
+  const odo = parseFloat(document.getElementById('fuel-odo').value);
+  const ppg = parseFloat(document.getElementById('fuel-ppg').value);
+  const spend = parseFloat(document.getElementById('fuel-spend').value);
+  let gallons = parseFloat(document.getElementById('fuel-gallons').value);
+  let miles = parseFloat(document.getElementById('fuel-miles').value);
+  const city = document.getElementById('fuel-city').value.trim();
+  const station = document.getElementById('fuel-station').value.trim();
+  const comments = document.getElementById('fuel-comments').value.trim();
+
+  if (!date || !odo || !spend) {
+    showToast('Date, odometer & spend are required', true);
+    return;
+  }
+
+  // Auto-calculate gallons if not provided
+  if (isNaN(gallons) && ppg > 0 && spend > 0) {
+    gallons = spend / ppg;
+  }
+
+  // Auto-calculate miles driven
+  if (isNaN(miles) && settings.lastOdo) {
+    miles = odo - settings.lastOdo;
+    if (miles < 0) miles = 0;
+  }
+
+  const entry = {
+    type: 'fuel',
+    date, odometer: odo, pricePerGal: ppg || 0, spend,
+    volume: gallons || 0, city, station, milesDriven: miles || 0, comments,
+    timestamp: Date.now()
+  };
+
+  if (editingIndex >= 0) {
+    entries[editingIndex] = entry;
+    editingIndex = -1;
+    showToast('Fuel entry updated!');
+  } else {
+    entries.unshift(entry);
+    sendToSheets('fuel', [date, odo, ppg||0, spend, gallons||0, city, station, miles||0, comments]);
+    showToast('Fuel fill-up logged!');
+  }
+  saveEntries();
+  settings.lastOdo = odo;
+  saveSettings2();
+  document.getElementById('setting-odo').value = odo;
+  clearForm('fuel');
+}
+
+function submitReimb() {
+  const date = document.getElementById('reimb-date').value;
+  const miles = parseFloat(document.getElementById('reimb-miles').value);
+  const value = parseFloat(document.getElementById('reimb-value').value);
+  const received = document.getElementById('reimb-received').value || '';
+
+  if (!date || !miles || !value) {
+    showToast('Date, miles & value are required', true);
+    return;
+  }
+
+  const entry = {
+    type: 'reimb', date, miles, value, received,
+    timestamp: Date.now()
+  };
+
+  if (editingIndex >= 0) {
+    entries[editingIndex] = entry;
+    editingIndex = -1;
+    showToast('Reimbursement updated!');
+  } else {
+    entries.unshift(entry);
+    sendToSheets('reimbursement', [date, miles, value, received]);
+    showToast('Reimbursement logged!');
+  }
+  saveEntries();
+  clearForm('reimb');
+}
+
+function submitMaint() {
+  const date = document.getElementById('maint-date').value;
+  const service = document.getElementById('maint-service').value;
+  const spend = parseFloat(document.getElementById('maint-spend').value) || 0;
+  const odo = parseFloat(document.getElementById('maint-odo').value) || 0;
+  const notes = document.getElementById('maint-notes').value.trim();
+
+  if (!date || !service) {
+    showToast('Date & service type are required', true);
+    return;
+  }
+
+  const entry = {
+    type: 'maint', date, service, spend, odometer: odo, notes,
+    timestamp: Date.now()
+  };
+
+  if (editingIndex >= 0) {
+    entries[editingIndex] = entry;
+    editingIndex = -1;
+    showToast('Maintenance updated!');
+  } else {
+    entries.unshift(entry);
+    sendToSheets('maintenance', [date, service, spend, odo, notes]);
+    showToast('Maintenance logged!');
+  }
+  saveEntries();
+  clearForm('maint');
+}
+
+function submitDef() {
+  const date = document.getElementById('def-date').value;
+  const volume = parseFloat(document.getElementById('def-volume').value);
+  const odo = parseFloat(document.getElementById('def-odo').value) || 0;
+  const spend = parseFloat(document.getElementById('def-spend').value);
+
+  if (!date || !volume || isNaN(spend)) {
+    showToast('Date, volume & spend are required', true);
+    return;
+  }
+
+  const entry = {
+    type: 'def', date, volume, odometer: odo, spend,
+    timestamp: Date.now()
+  };
+
+  if (editingIndex >= 0) {
+    entries[editingIndex] = entry;
+    editingIndex = -1;
+    showToast('DEF entry updated!');
+  } else {
+    entries.unshift(entry);
+    sendToSheets('def', [date, volume, odo, spend]);
+    showToast('DEF fill logged!');
+  }
+  saveEntries();
+  clearForm('def');
+}
+
+function submitMiles() {
+  const date = document.getElementById('miles-date').value;
+  const odo = parseFloat(document.getElementById('miles-odo').value);
+  const notes = document.getElementById('miles-notes').value.trim();
+
+  if (!date || !odo) {
+    showToast('Date & odometer are required', true);
+    return;
+  }
+
+  // Calculate miles since last reading
+  let milesDriven = 0;
+  if (settings.lastOdo) {
+    milesDriven = odo - settings.lastOdo;
+    if (milesDriven < 0) milesDriven = 0;
+  }
+
+  const entry = {
+    type: 'miles', date, odometer: odo, milesDriven, notes,
+    timestamp: Date.now()
+  };
+
+  if (editingIndex >= 0) {
+    entries[editingIndex] = entry;
+    editingIndex = -1;
+    showToast('Miles entry updated!');
+  } else {
+    entries.unshift(entry);
+    sendToSheets('miles', [date, odo, milesDriven, notes]);
+    showToast('Miles logged!');
+  }
+  saveEntries();
+  settings.lastOdo = odo;
+  saveSettings2();
+  document.getElementById('setting-odo').value = odo;
+  clearForm('miles');
+}
+
+// ═══════════ GOOGLE SHEETS SYNC ═══════════
+function sendToSheets(sheet, rowData) {
+  if (!settings.url) {
+    console.log('No Sheets URL configured. Data saved locally only.');
+    return;
+  }
+
+  const payload = { sheet, data: rowData };
+
+  fetch(settings.url, {
+    method: 'POST',
+    mode: 'no-cors',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  })
+  .then(() => console.log('Sent to Google Sheets'))
+  .catch(err => {
+    console.error('Sheets sync failed:', err);
+    showToast('Saved locally (sync failed)', true);
+  });
+}
+
+// ═══════════ DASHBOARD ═══════════
+let dashCharts = {};
+
+function switchDashTab(tab, btn) {
+  document.querySelectorAll('.dash-section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.dash-tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('dash-' + tab).classList.add('active');
+  btn.classList.add('active');
+}
+
+function renderDashboard() {
+  // Destroy old charts
+  Object.values(dashCharts).forEach(c => c.destroy());
+  dashCharts = {};
+
+  const fuelEntries = entries.filter(e => e.type === 'fuel');
+  const reimbEntries = entries.filter(e => e.type === 'reimb');
+  const maintEntries = entries.filter(e => e.type === 'maint');
+  const defEntries = entries.filter(e => e.type === 'def');
+
+  // Compute stats
+  const totalFuelSpend = fuelEntries.reduce((s,e) => s + e.spend, 0);
+  const totalMaintSpend = maintEntries.reduce((s,e) => s + e.spend, 0);
+  const totalDefSpend = defEntries.reduce((s,e) => s + e.spend, 0);
+  const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend;
+  const totalGallons = fuelEntries.reduce((s,e) => s + (e.volume||0), 0);
+  const totalMiles = fuelEntries.reduce((s,e) => s + (e.milesDriven||0), 0);
+  const avgMpg = totalGallons > 0 ? totalMiles / totalGallons : 0;
+  const totalReimbVal = reimbEntries.reduce((s,e) => s + e.value, 0);
+  const reimbReceived = reimbEntries.filter(e => e.received).reduce((s,e) => s + e.value, 0);
+  const reimbPending = totalReimbVal - reimbReceived;
+  const totalReimbMiles = reimbEntries.reduce((s,e) => s + e.miles, 0);
+  const netPosition = totalReimbVal - totalSpend;
+  const totalDefVol = defEntries.reduce((s,e) => s + e.volume, 0);
+
+  // ── OVERVIEW ──
+  document.getElementById('kpi-overview').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value v-orange">$${totalSpend.toFixed(2)}</div><div class="kpi-sub">Fuel + Maint + DEF</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Reimbursed</div><div class="kpi-value v-green">$${totalReimbVal.toFixed(2)}</div><div class="kpi-sub">$${reimbReceived.toFixed(2)} received · $${reimbPending.toFixed(2)} pending</div></div>
+    <div class="kpi-card"><div class="kpi-label">Net Position</div><div class="kpi-value ${netPosition >= 0 ? 'v-green' : 'v-red'}">${netPosition >= 0 ? '+' : ''}$${netPosition.toFixed(2)}</div><div class="kpi-sub">${netPosition >= 0 ? 'Reimbursements exceed spend' : 'Spend exceeds reimbursements'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg Fuel Economy</div><div class="kpi-value v-cyan">${avgMpg > 0 ? avgMpg.toFixed(1) + ' MPG' : '—'}</div><div class="kpi-sub">${totalMiles.toFixed(1)} mi / ${totalGallons.toFixed(2)} gal</div></div>
+  `;
+
+  // Spend pie
+  const spendCtx = document.getElementById('chart-spend-pie');
+  dashCharts.spendPie = new Chart(spendCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Fuel', 'Maintenance', 'DEF'],
+      datasets: [{ data: [totalFuelSpend || 0.01, totalMaintSpend || 0.01, totalDefSpend || 0.01], backgroundColor: ['#fb923c','#a78bfa','#22d3ee'], borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '60%',
+      plugins: { legend: { position: 'bottom', labels: { color: '#8b8fa3', padding: 16, usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: { callbacks: { label: ctx => ctx.label + ': $' + (ctx.raw < 0.02 ? '0.00' : ctx.raw.toFixed(2)) } } } }
+  });
+
+  // Reimb pie
+  const reimbCtx = document.getElementById('chart-reimb-pie');
+  dashCharts.reimbPie = new Chart(reimbCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Received', 'Pending'],
+      datasets: [{ data: [reimbReceived || 0.01, reimbPending || 0.01], backgroundColor: ['#34d399','#fb923c'], borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '60%',
+      plugins: { legend: { position: 'bottom', labels: { color: '#8b8fa3', padding: 16, usePointStyle: true, pointStyle: 'circle' } },
+        tooltip: { callbacks: { label: ctx => ctx.label + ': $' + (ctx.raw < 0.02 ? '0.00' : ctx.raw.toFixed(2)) } } } }
+  });
+
+  // ── FUEL TAB ──
+  document.getElementById('kpi-fuel').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Fuel Spend</div><div class="kpi-value v-orange">$${totalFuelSpend.toFixed(2)}</div><div class="kpi-sub">${fuelEntries.length} fill-up${fuelEntries.length!==1?'s':''}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Gallons</div><div class="kpi-value v-blue">${totalGallons.toFixed(2)}</div><div class="kpi-sub">${fuelEntries.length} transaction${fuelEntries.length!==1?'s':''}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Miles Driven</div><div class="kpi-value v-cyan">${totalMiles.toFixed(1)}</div><div class="kpi-sub">From fuel logs</div></div>
+    <div class="kpi-card"><div class="kpi-label">Cost/Mile</div><div class="kpi-value v-purple">${totalMiles > 0 ? '$' + (totalFuelSpend/totalMiles).toFixed(2) : '—'}</div><div class="kpi-sub">Fuel only</div></div>
+  `;
+
+  const fuelSorted = [...fuelEntries].sort((a,b) => a.date.localeCompare(b.date));
+  let fuelTableHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Odo</th><th>City</th><th>$/Gal</th><th>Gal</th><th>Spend</th><th>MPG</th></tr></thead><tbody>';
+  fuelSorted.forEach(e => {
+    const mpg = e.volume > 0 ? (e.milesDriven / e.volume).toFixed(1) : '—';
+    fuelTableHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.odometer.toLocaleString()}</td><td>${e.city||''}</td><td>${e.pricePerGal ? '$'+e.pricePerGal.toFixed(2) : '—'}</td><td>${e.volume ? e.volume.toFixed(2) : '—'}</td><td>$${e.spend.toFixed(2)}</td><td>${mpg}</td></tr>`;
+  });
+  fuelTableHtml += '</tbody></table>';
+  document.getElementById('fuel-table-wrap').innerHTML = fuelTableHtml;
+
+  // MPG chart
+  if (fuelSorted.length > 0) {
+    const mpgLabels = fuelSorted.map(e => formatDate(e.date));
+    const mpgData = fuelSorted.map(e => e.volume > 0 ? +(e.milesDriven/e.volume).toFixed(1) : null);
+    const mpgCtx = document.getElementById('chart-mpg');
+    dashCharts.mpg = new Chart(mpgCtx, {
+      type: 'line',
+      data: { labels: mpgLabels, datasets: [{ label: 'MPG', data: mpgData, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', borderWidth: 2, pointBackgroundColor: '#22d3ee', pointRadius: 5, fill: true, tension: 0.3 }] },
+      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false, grid: { color: 'rgba(42,46,69,0.4)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+    });
+  }
+
+  // ── REIMB TAB ──
+  document.getElementById('kpi-reimb').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Total Claimed</div><div class="kpi-value v-blue">$${totalReimbVal.toFixed(2)}</div><div class="kpi-sub">${reimbEntries.length} submission${reimbEntries.length!==1?'s':''}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Received</div><div class="kpi-value v-green">$${reimbReceived.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Pending</div><div class="kpi-value v-orange">$${reimbPending.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Miles Claimed</div><div class="kpi-value v-purple">${totalReimbMiles.toFixed(1)}</div><div class="kpi-sub">${totalReimbMiles > 0 ? 'Avg $'+(totalReimbVal/totalReimbMiles).toFixed(3)+'/mi' : ''}</div></div>
+  `;
+
+  const reimbSorted = [...reimbEntries].sort((a,b) => a.date.localeCompare(b.date));
+  let reimbHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Miles</th><th>Value</th><th>Status</th></tr></thead><tbody>';
+  reimbSorted.forEach(e => {
+    const status = e.received ? '<span style="color:var(--green)">Received</span>' : '<span style="color:var(--orange)">Pending</span>';
+    reimbHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.miles.toFixed(1)}</td><td>$${e.value.toFixed(2)}</td><td>${status}</td></tr>`;
+  });
+  reimbHtml += '</tbody></table>';
+  if (reimbEntries.length > 0) {
+    reimbHtml += `<div class="summary-row"><span class="summary-label">Total Reimbursements</span><span class="summary-val" style="color:var(--green)">$${totalReimbVal.toFixed(2)}</span></div>`;
+  }
+  document.getElementById('reimb-table-wrap').innerHTML = reimbHtml;
+
+  // ── MAINT TAB ──
+  document.getElementById('kpi-maint').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Maint Spend</div><div class="kpi-value ${totalMaintSpend > 0 ? 'v-red' : 'v-green'}">$${totalMaintSpend.toFixed(2)}</div><div class="kpi-sub">${totalMaintSpend === 0 ? 'All services covered' : ''}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Services</div><div class="kpi-value v-blue">${maintEntries.length}</div><div class="kpi-sub">${maintEntries.length > 0 ? 'Last: '+formatDate(maintEntries[0].date) : 'None logged'}</div></div>
+  `;
+
+  const maintSorted = [...maintEntries].sort((a,b) => b.date.localeCompare(a.date));
+  let maintHtml = '';
+  maintSorted.forEach(e => {
+    maintHtml += `<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid rgba(42,46,69,0.4)">
+      <div><div style="font-weight:600;font-size:14px">${e.service}</div><div style="font-size:12px;color:var(--text2)">${formatDate(e.date)}${e.odometer > 0 ? ' · '+e.odometer.toLocaleString()+' mi' : ''}${e.notes ? ' · '+e.notes : ''}</div></div>
+      <div style="font-weight:700;font-size:14px;color:${e.spend > 0 ? 'var(--red)' : 'var(--green)'}">${e.spend > 0 ? '$'+e.spend.toFixed(2) : '$0 (Covered)'}</div>
+    </div>`;
+  });
+  if (maintEntries.length > 0) {
+    maintHtml += `<div class="summary-row"><span class="summary-label">Total Maintenance Cost</span><span class="summary-val" style="color:${totalMaintSpend > 0 ? 'var(--red)' : 'var(--green)'}">$${totalMaintSpend.toFixed(2)}</span></div>`;
+  }
+  document.getElementById('maint-table-wrap').innerHTML = maintHtml || '<div style="text-align:center;padding:20px;color:var(--muted)">No maintenance logged yet</div>';
+
+  // ── MILES TAB ──
+  const milesEntries = entries.filter(e => e.type === 'miles');
+  const totalMilesDriven = milesEntries.reduce((s,e) => s + (e.milesDriven||0), 0);
+  const latestOdo = milesEntries.length > 0 ? Math.max(...milesEntries.map(e => e.odometer)) : 0;
+
+  document.getElementById('kpi-miles').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">Readings</div><div class="kpi-value v-blue">${milesEntries.length}</div><div class="kpi-sub">${milesEntries.length > 0 ? 'Last: '+formatDate(milesEntries[0].date) : 'None logged'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Miles Logged</div><div class="kpi-value v-cyan">${totalMilesDriven.toFixed(1)}</div><div class="kpi-sub">${latestOdo > 0 ? 'Latest odo: '+latestOdo.toLocaleString() : ''}</div></div>
+  `;
+
+  const milesSorted = [...milesEntries].sort((a,b) => a.date.localeCompare(b.date));
+  let milesHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Odometer</th><th>Miles Driven</th><th>Notes</th></tr></thead><tbody>';
+  milesSorted.forEach(e => {
+    milesHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.odometer.toLocaleString()}</td><td>${e.milesDriven > 0 ? '+'+e.milesDriven.toFixed(1) : '—'}</td><td>${e.notes||''}</td></tr>`;
+  });
+  milesHtml += '</tbody></table>';
+  document.getElementById('miles-table-wrap').innerHTML = milesHtml;
+
+  // ── DEF TAB ──
+  document.getElementById('kpi-def').innerHTML = `
+    <div class="kpi-card"><div class="kpi-label">DEF Spend</div><div class="kpi-value v-cyan">$${totalDefSpend.toFixed(2)}</div><div class="kpi-sub">${defEntries.length} fill${defEntries.length!==1?'s':''}</div></div>
+    <div class="kpi-card"><div class="kpi-label">DEF Volume</div><div class="kpi-value v-blue">${totalDefVol.toFixed(2)} gal</div></div>
+  `;
+
+  const defSorted = [...defEntries].sort((a,b) => a.date.localeCompare(b.date));
+  let defHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Volume</th><th>Odometer</th><th>Spend</th></tr></thead><tbody>';
+  defSorted.forEach(e => {
+    defHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.volume.toFixed(2)} gal</td><td>${e.odometer > 0 ? e.odometer.toLocaleString() : '—'}</td><td>$${e.spend.toFixed(2)}</td></tr>`;
+  });
+  defHtml += '</tbody></table>';
+  if (defEntries.length > 0) {
+    defHtml += `<div class="summary-row"><span class="summary-label">Total DEF Spend</span><span class="summary-val" style="color:var(--cyan)">$${totalDefSpend.toFixed(2)}</span></div>`;
+  }
+  document.getElementById('def-table-wrap').innerHTML = defHtml;
+}
+
+function formatDate(d) {
+  if (!d) return '';
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// ═══════════ HISTORY PANELS (Edit/Delete) ═══════════
+let editingIndex = -1;
+
+function toggleHistory(type) {
+  const panel = document.getElementById('history-' + type);
+  const isOpen = panel.classList.contains('open');
+  if (isOpen) {
+    panel.classList.remove('open');
+  } else {
+    renderHistoryPanel(type);
+    panel.classList.add('open');
+  }
+}
+
+function renderHistoryPanel(type) {
+  const panel = document.getElementById('history-' + type);
+  const filtered = entries.map((e, i) => ({ ...e, _idx: i })).filter(e => e.type === type);
+  filtered.sort((a, b) => b.date.localeCompare(a.date));
+
+  if (filtered.length === 0) {
+    panel.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">No entries yet</div>';
+    return;
+  }
+
+  panel.innerHTML = filtered.map(e => {
+    let info = '';
+    if (type === 'fuel') {
+      info = `<div style="font-weight:600;font-size:14px">${e.station || 'Fill-up'}${e.city ? ' — ' + e.city : ''}</div>
+        <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.odometer.toLocaleString()} mi · $${e.spend.toFixed(2)} · ${e.volume > 0 ? e.volume.toFixed(2) + ' gal' : ''}</div>`;
+    } else if (type === 'reimb') {
+      info = `<div style="font-weight:600;font-size:14px">${e.miles.toFixed(1)} miles — $${e.value.toFixed(2)}</div>
+        <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.received ? 'Received ' + formatDate(e.received) : 'Pending'}</div>`;
+    } else if (type === 'maint') {
+      info = `<div style="font-weight:600;font-size:14px">${e.service}</div>
+        <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.odometer > 0 ? e.odometer.toLocaleString() + ' mi' : ''} · ${e.spend > 0 ? '$' + e.spend.toFixed(2) : '$0 (Covered)'}${e.notes ? ' · ' + e.notes : ''}</div>`;
+    } else if (type === 'def') {
+      info = `<div style="font-weight:600;font-size:14px">${e.volume.toFixed(2)} gal DEF — $${e.spend.toFixed(2)}</div>
+        <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.odometer > 0 ? e.odometer.toLocaleString() + ' mi' : ''}</div>`;
+    } else if (type === 'miles') {
+      info = `<div style="font-weight:600;font-size:14px">${e.odometer.toLocaleString()} mi</div>
+        <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.milesDriven > 0 ? '+' + e.milesDriven.toFixed(1) + ' mi driven' : ''}${e.notes ? ' · ' + e.notes : ''}</div>`;
+    }
+
+    return `<div class="hist-card" id="hist-card-${e._idx}">
+      <div class="hist-card-top">
+        <div class="hist-card-info">${info}</div>
+        <div class="hist-card-actions">
+          <button class="hist-btn hist-btn-edit" onclick="editEntry(${e._idx},'${type}')">Edit</button>
+          <button class="hist-btn hist-btn-del" onclick="confirmDelete(${e._idx},'${type}')">Delete</button>
+        </div>
+      </div>
+      <div id="del-confirm-${e._idx}" style="display:none;margin-top:8px;">
+        <span style="font-size:12px;color:var(--red);margin-right:8px;">Delete this entry?</span>
+        <button class="confirm-del" onclick="deleteEntry(${e._idx},'${type}')">Yes, Delete</button>
+        <button class="cancel-del" onclick="document.getElementById('del-confirm-${e._idx}').style.display='none'">Cancel</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function confirmDelete(idx, type) {
+  document.getElementById('del-confirm-' + idx).style.display = 'block';
+}
+
+function deleteEntry(idx, type) {
+  entries.splice(idx, 1);
+  saveEntries();
+  renderHistoryPanel(type);
+  showToast('Entry deleted');
+}
+
+function editEntry(idx, type) {
+  const e = entries[idx];
+  editingIndex = idx;
+
+  if (type === 'fuel') {
+    document.getElementById('fuel-date').value = e.date;
+    document.getElementById('fuel-odo').value = e.odometer;
+    document.getElementById('fuel-miles').value = e.milesDriven || '';
+    document.getElementById('fuel-ppg').value = e.pricePerGal || '';
+    document.getElementById('fuel-spend').value = e.spend;
+    document.getElementById('fuel-gallons').value = e.volume || '';
+    document.getElementById('fuel-city').value = e.city || '';
+    document.getElementById('fuel-station').value = e.station || '';
+    document.getElementById('fuel-comments').value = e.comments || '';
+  } else if (type === 'reimb') {
+    document.getElementById('reimb-date').value = e.date;
+    document.getElementById('reimb-miles').value = e.miles;
+    document.getElementById('reimb-value').value = e.value;
+    document.getElementById('reimb-received').value = e.received || '';
+  } else if (type === 'maint') {
+    document.getElementById('maint-date').value = e.date;
+    document.getElementById('maint-service').value = e.service;
+    document.getElementById('maint-spend').value = e.spend || '';
+    document.getElementById('maint-odo').value = e.odometer || '';
+    document.getElementById('maint-notes').value = e.notes || '';
+  } else if (type === 'def') {
+    document.getElementById('def-date').value = e.date;
+    document.getElementById('def-volume').value = e.volume;
+    document.getElementById('def-odo').value = e.odometer || '';
+    document.getElementById('def-spend').value = e.spend;
+  } else if (type === 'miles') {
+    document.getElementById('miles-date').value = e.date;
+    document.getElementById('miles-odo').value = e.odometer;
+    document.getElementById('miles-notes').value = e.notes || '';
+  }
+
+  // Close the history panel and scroll to top
+  document.getElementById('history-' + type).classList.remove('open');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  showToast('Editing entry — update fields and re-submit');
+}
+
+// ═══════════ FORM RESET ═══════════
+function clearForm(type) {
+  const today = new Date().toISOString().split('T')[0];
+  if (type === 'fuel') {
+    ['fuel-odo','fuel-ppg','fuel-spend','fuel-gallons','fuel-miles','fuel-city','fuel-station','fuel-comments'].forEach(id => {
+      const el = document.getElementById(id);
+      el.value = '';
+    });
+    document.getElementById('fuel-date').value = today;
+  } else if (type === 'reimb') {
+    ['reimb-miles','reimb-value','reimb-received'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('reimb-date').value = today;
+  } else if (type === 'def') {
+    ['def-volume','def-odo','def-spend'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('def-date').value = today;
+  } else if (type === 'miles') {
+    ['miles-odo','miles-notes'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('miles-date').value = today;
+  } else {
+    ['maint-spend','maint-odo','maint-notes'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('maint-service').value = '';
+    document.getElementById('maint-date').value = today;
+  }
+}
+</script>
+</body>
+</html>
