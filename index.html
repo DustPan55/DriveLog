@@ -1769,7 +1769,7 @@ function renderDashboard() {
     <div class="kpi-card"><div class="kpi-label">Fuel Spend</div><div class="kpi-value v-orange">$${totalFuelSpend.toFixed(2)}</div><div class="kpi-sub">${fuelEntries.length} fill-up${fuelEntries.length!==1?'s':''}</div></div>
     <div class="kpi-card"><div class="kpi-label">Gallons</div><div class="kpi-value v-blue">${totalGallons.toFixed(2)}</div><div class="kpi-sub">${fuelEntries.length} transaction${fuelEntries.length!==1?'s':''}</div></div>
     <div class="kpi-card"><div class="kpi-label">Miles Driven</div><div class="kpi-value v-cyan">${totalMiles.toFixed(1)}</div><div class="kpi-sub">From fuel logs</div></div>
-    <div class="kpi-card"><div class="kpi-label">Cost/Mile</div><div class="kpi-value v-purple">${totalMiles > 0 ? '$' + (totalFuelSpend/totalMiles).toFixed(2) : '—'}</div><div class="kpi-sub">Fuel only</div></div>
+    <div class="kpi-card"><div class="kpi-label">Cost/Mile</div><div class="kpi-value v-purple">${totalMiles > 0 ? '$' + (fuelByOdo.filter(e=>e._calcMiles>0).reduce((s,e)=>s+e.spend,0)/totalMiles).toFixed(2) : '—'}</div><div class="kpi-sub">Fuel only</div></div>
   `;
 
   const fuelSorted = [...fuelByOdo].sort((a,b) => a.date.localeCompare(b.date));
