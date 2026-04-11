@@ -364,6 +364,11 @@
     margin-top: 4px;
   }
 
+  /* Toggle switch */
+  #fuel-full:checked + .toggle-track { background: var(--green) !important; }
+  #fuel-full:checked ~ .toggle-thumb { transform: translateX(20px) !important; background: #fff !important; }
+  #fuel-full:not(:checked) ~ .toggle-thumb { background: var(--text2) !important; }
+
   /* Dashboard */
   .kpi-row {
     display: grid;
@@ -690,6 +695,18 @@
     </div>
   </div>
 
+  <div class="form-group" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+    <label for="fuel-full" style="margin:0;font-size:13px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:8px;">
+      <span style="position:relative;display:inline-block;width:44px;height:24px;">
+        <input type="checkbox" id="fuel-full" checked style="opacity:0;width:0;height:0;position:absolute;">
+        <span class="toggle-track" style="position:absolute;inset:0;background:var(--border);border-radius:12px;transition:background 0.2s;cursor:pointer;"></span>
+        <span class="toggle-thumb" style="position:absolute;top:2px;left:2px;width:20px;height:20px;background:var(--text2);border-radius:50%;transition:transform 0.2s,background 0.2s;"></span>
+      </span>
+      Filled to Full?
+    </label>
+    <div class="autofill-hint" style="margin:0;font-size:11px;">MPG is only calculated between full fill-ups</div>
+  </div>
+
   <div class="form-group">
     <label>Gas Station</label>
     <input type="text" id="fuel-station" placeholder="">
@@ -974,6 +991,11 @@
   </div>
 
   <div class="setting-row">
+    <label>Tank Size (gal)</label>
+    <input type="number" id="setting-tank" placeholder="e.g. 34" step="0.1">
+  </div>
+
+  <div class="setting-row">
     <label>Last Odometer</label>
     <input type="number" id="setting-odo" placeholder="0" step="0.1">
   </div>
@@ -1010,6 +1032,11 @@
         <option value="diesel">Diesel</option>
         <option value="gas">Gasoline</option>
       </select>
+    </div>
+
+    <div class="form-group">
+      <label>Fuel tank size (gallons)</label>
+      <input type="number" id="welcome-tank" placeholder="e.g. 34" step="0.1" inputmode="decimal" style="font-size:16px;">
     </div>
 
     <div class="form-group">
@@ -1081,7 +1108,7 @@
 <script>
 // ═══════════ STATE ═══════════
 let entries = [];
-let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel' };
+let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel', tankSize: 0 };
 
 // No seed data — users start fresh
 const SEED_ENTRIES = [];
@@ -1116,6 +1143,7 @@ try {
     if (s.vehicleName) settings.vehicleName = s.vehicleName;
     if (s.appName) settings.appName = s.appName;
     if (s.fuelType) settings.fuelType = s.fuelType;
+    if (s.tankSize) settings.tankSize = s.tankSize;
     if (s.setupComplete) settings.setupComplete = true;
   }
 } catch(e) {}
@@ -1265,6 +1293,7 @@ async function loadFromCloud() {
       document.getElementById('setting-app-name').value = settings.appName || '';
       document.getElementById('setting-vehicle').value = settings.vehicleName || '';
       document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
+      document.getElementById('setting-tank').value = settings.tankSize || '';
       updateHeader();
       updateDefVisibility();
     } else {
@@ -1319,6 +1348,8 @@ function saveSettings() {
   settings.appName = document.getElementById('setting-app-name').value.trim();
   settings.vehicleName = document.getElementById('setting-vehicle').value.trim();
   settings.fuelType = document.getElementById('setting-fuel-type').value;
+  const tank = parseFloat(document.getElementById('setting-tank').value);
+  settings.tankSize = tank > 0 ? tank : 0;
   saveSettings2();
   updateHeader();
   updateDefVisibility();
@@ -1351,6 +1382,8 @@ async function completeWelcome(skipAuth) {
   if (odo) settings.lastOdo = odo;
   const appName = document.getElementById('welcome-app-name').value.trim();
   if (appName) settings.appName = appName;
+  const wTank = parseFloat(document.getElementById('welcome-tank').value);
+  if (wTank > 0) settings.tankSize = wTank;
   settings.setupComplete = true;
   saveSettings2();
 
@@ -1369,6 +1402,7 @@ async function completeWelcome(skipAuth) {
   document.getElementById('setting-app-name').value = settings.appName || '';
   document.getElementById('setting-vehicle').value = settings.vehicleName || '';
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
+  document.getElementById('setting-tank').value = settings.tankSize || '';
 
   updateHeader();
   updateDefVisibility();
@@ -1384,6 +1418,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setting-app-name').value = settings.appName || '';
   document.getElementById('setting-vehicle').value = settings.vehicleName || '';
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
+  document.getElementById('setting-tank').value = settings.tankSize || '';
   updateHeader();
   updateDefVisibility();
 
@@ -1422,16 +1457,27 @@ function submitFuel() {
     gallons = spend / ppg;
   }
 
-  // Auto-calculate miles driven
-  if (isNaN(miles) && settings.lastOdo) {
-    miles = odo - settings.lastOdo;
+  // Auto-calculate miles driven from previous fuel entry odometer
+  if (isNaN(miles)) {
+    const prevFuel = entries
+      .filter(e => e.type === 'fuel')
+      .sort((a,b) => b.odometer - a.odometer)
+      .find(e => e.odometer < odo);
+    if (prevFuel) {
+      miles = odo - prevFuel.odometer;
+    } else if (settings.lastOdo && settings.lastOdo < odo) {
+      miles = odo - settings.lastOdo;
+    }
     if (miles < 0) miles = 0;
   }
+
+  const filledToFull = document.getElementById('fuel-full').checked;
 
   const entry = {
     type: 'fuel',
     date, odometer: odo, pricePerGal: ppg || 0, spend,
     volume: gallons || 0, city, station, milesDriven: miles || 0, comments,
+    filledToFull,
     timestamp: Date.now()
   };
 
@@ -1625,8 +1671,58 @@ function renderDashboard() {
   const totalDefSpend = defEntries.reduce((s,e) => s + e.spend, 0);
   const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend;
   const totalGallons = fuelEntries.reduce((s,e) => s + (e.volume||0), 0);
-  const totalMiles = fuelEntries.reduce((s,e) => s + (e.milesDriven||0), 0);
-  const avgMpg = totalGallons > 0 ? totalMiles / totalGallons : 0;
+
+  // Calculate miles from consecutive odometer readings
+  const fuelByOdo = [...fuelEntries].sort((a,b) => a.odometer - b.odometer);
+  for (let i = 0; i < fuelByOdo.length; i++) {
+    fuelByOdo[i]._calcMiles = i > 0 ? fuelByOdo[i].odometer - fuelByOdo[i-1].odometer : 0;
+  }
+  const totalMiles = fuelByOdo.reduce((s,e) => s + e._calcMiles, 0);
+
+  // MPG: only calculate between consecutive full fill-ups
+  // When you fill to full, the gallons pumped = fuel consumed since last full fill.
+  // Miles = odometer difference from last full fill to this full fill.
+  // So MPG = miles since last full fill / gallons at this full fill.
+  let lastFullIdx = -1;
+  for (let i = 0; i < fuelByOdo.length; i++) {
+    fuelByOdo[i]._calcMpg = null;
+    const isFull = fuelByOdo[i].filledToFull !== false; // default true for legacy entries
+    if (isFull && lastFullIdx >= 0) {
+      const milesSinceLastFull = fuelByOdo[i].odometer - fuelByOdo[lastFullIdx].odometer;
+      // Sum all gallons from entries AFTER the last full fill up to and including this one
+      let galSinceLastFull = 0;
+      for (let j = lastFullIdx + 1; j <= i; j++) {
+        galSinceLastFull += fuelByOdo[j].volume || 0;
+      }
+      if (milesSinceLastFull > 0 && galSinceLastFull > 0) {
+        fuelByOdo[i]._calcMpg = milesSinceLastFull / galSinceLastFull;
+      }
+    }
+    if (isFull) lastFullIdx = i;
+  }
+  const mpgEntries = fuelByOdo.filter(e => e._calcMpg !== null);
+  const totalMpgMiles = mpgEntries.reduce((s,e) => {
+    // Find the previous full fill to get the miles span
+    const idx = fuelByOdo.indexOf(e);
+    let prevFullIdx = -1;
+    for (let j = idx - 1; j >= 0; j--) {
+      if (fuelByOdo[j].filledToFull !== false) { prevFullIdx = j; break; }
+    }
+    return s + (prevFullIdx >= 0 ? e.odometer - fuelByOdo[prevFullIdx].odometer : 0);
+  }, 0);
+  const totalMpgGallons = mpgEntries.reduce((s,e) => {
+    const idx = fuelByOdo.indexOf(e);
+    let prevFullIdx = -1;
+    for (let j = idx - 1; j >= 0; j--) {
+      if (fuelByOdo[j].filledToFull !== false) { prevFullIdx = j; break; }
+    }
+    let gal = 0;
+    for (let j = (prevFullIdx >= 0 ? prevFullIdx + 1 : 0); j <= idx; j++) {
+      gal += fuelByOdo[j].volume || 0;
+    }
+    return s + gal;
+  }, 0);
+  const avgMpg = totalMpgGallons > 0 ? totalMpgMiles / totalMpgGallons : 0;
   const totalReimbVal = reimbEntries.reduce((s,e) => s + e.value, 0);
   const reimbReceived = reimbEntries.filter(e => e.received).reduce((s,e) => s + e.value, 0);
   const reimbPending = totalReimbVal - reimbReceived;
@@ -1676,19 +1772,21 @@ function renderDashboard() {
     <div class="kpi-card"><div class="kpi-label">Cost/Mile</div><div class="kpi-value v-purple">${totalMiles > 0 ? '$' + (totalFuelSpend/totalMiles).toFixed(2) : '—'}</div><div class="kpi-sub">Fuel only</div></div>
   `;
 
-  const fuelSorted = [...fuelEntries].sort((a,b) => a.date.localeCompare(b.date));
-  let fuelTableHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Odo</th><th>City</th><th>$/Gal</th><th>Gal</th><th>Spend</th><th>MPG</th></tr></thead><tbody>';
+  const fuelSorted = [...fuelByOdo].sort((a,b) => a.date.localeCompare(b.date));
+  let fuelTableHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Odo</th><th>City</th><th>$/Gal</th><th>Gal</th><th>Spend</th><th>Miles</th><th>Full</th><th>MPG</th></tr></thead><tbody>';
   fuelSorted.forEach(e => {
-    const mpg = e.volume > 0 ? (e.milesDriven / e.volume).toFixed(1) : '—';
-    fuelTableHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.odometer.toLocaleString()}</td><td>${e.city||''}</td><td>${e.pricePerGal ? '$'+e.pricePerGal.toFixed(2) : '—'}</td><td>${e.volume ? e.volume.toFixed(2) : '—'}</td><td>$${e.spend.toFixed(2)}</td><td>${mpg}</td></tr>`;
+    const mpg = e._calcMpg ? e._calcMpg.toFixed(1) : '—';
+    const miles = e._calcMiles > 0 ? e._calcMiles.toFixed(1) : '—';
+    const full = e.filledToFull !== false ? '✓' : '—';
+    fuelTableHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.odometer.toLocaleString()}</td><td>${e.city||''}</td><td>${e.pricePerGal ? '$'+e.pricePerGal.toFixed(2) : '—'}</td><td>${e.volume ? e.volume.toFixed(2) : '—'}</td><td>$${e.spend.toFixed(2)}</td><td>${miles}</td><td>${full}</td><td>${mpg}</td></tr>`;
   });
   fuelTableHtml += '</tbody></table>';
   document.getElementById('fuel-table-wrap').innerHTML = fuelTableHtml;
 
   // MPG chart
   if (fuelSorted.length > 0) {
-    const mpgLabels = fuelSorted.map(e => formatDate(e.date));
-    const mpgData = fuelSorted.map(e => e.volume > 0 ? +(e.milesDriven/e.volume).toFixed(1) : null);
+    const mpgLabels = fuelSorted.filter(e => e._calcMpg).map(e => formatDate(e.date));
+    const mpgData = fuelSorted.filter(e => e._calcMpg).map(e => +e._calcMpg.toFixed(1));
     const mpgCtx = document.getElementById('chart-mpg');
     dashCharts.mpg = new Chart(mpgCtx, {
       type: 'line',
@@ -1863,6 +1961,7 @@ function editEntry(idx, type) {
     document.getElementById('fuel-city').value = e.city || '';
     document.getElementById('fuel-station').value = e.station || '';
     document.getElementById('fuel-comments').value = e.comments || '';
+    document.getElementById('fuel-full').checked = e.filledToFull !== false;
   } else if (type === 'reimb') {
     document.getElementById('reimb-date').value = e.date;
     document.getElementById('reimb-miles').value = e.miles;
@@ -1900,6 +1999,7 @@ function clearForm(type) {
       el.value = '';
     });
     document.getElementById('fuel-date').value = today;
+    document.getElementById('fuel-full').checked = true;
   } else if (type === 'reimb') {
     ['reimb-miles','reimb-value','reimb-received'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('reimb-date').value = today;
