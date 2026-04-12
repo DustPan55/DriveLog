@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>DriveLog</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <style>
   :root {
@@ -1936,28 +1937,52 @@ function renderDashboard() {
   fuelTableHtml += '</tbody></table>';
   document.getElementById('fuel-table-wrap').innerHTML = fuelTableHtml;
 
-  // Fuel Volume bar chart
+  // Fuel Volume bar chart (time-scaled x-axis)
   if (fuelSorted.length > 0) {
-    const volLabels = fuelSorted.map(e => formatDate(e.date));
-    const volData = fuelSorted.map(e => +(e.volume || 0).toFixed(2));
+    const volData = fuelSorted.map(e => ({ x: e.date, y: +(e.volume || 0).toFixed(2) }));
     const fuelLabel = (settings.fuelType === 'gas') ? 'Gasoline (gal)' : 'Diesel (gal)';
     const volCtx = document.getElementById('chart-volume');
+    // Determine time unit based on span
+    const firstDate = new Date(fuelSorted[0].date);
+    const lastDate = new Date(fuelSorted[fuelSorted.length-1].date);
+    const spanDays = (lastDate - firstDate) / (1000*60*60*24);
+    const timeUnit = spanDays > 180 ? 'month' : (spanDays > 30 ? 'week' : 'day');
     dashCharts.volume = new Chart(volCtx, {
       type: 'bar',
-      data: { labels: volLabels, datasets: [{ label: fuelLabel, data: volData, backgroundColor: 'rgba(251,146,60,0.7)', borderColor: '#fb923c', borderWidth: 1, borderRadius: 4 }] },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, grid: { color: 'rgba(42,46,69,0.4)' }, title: { display: true, text: 'Gallons', color: '#8b8fa3' } }, x: { grid: { display: false } } }, plugins: { legend: { display: true, labels: { color: '#8b8fa3' } }, tooltip: { callbacks: { label: ctx => ctx.raw.toFixed(2) + ' gal' } } } }
+      data: { datasets: [{ label: fuelLabel, data: volData, backgroundColor: 'rgba(251,146,60,0.7)', borderColor: '#fb923c', borderWidth: 1, borderRadius: 4, barThickness: 'flex', maxBarThickness: 30 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { type: 'time', time: { unit: timeUnit, tooltipFormat: 'MMM d, yyyy' }, grid: { display: false }, ticks: { color: '#8b8fa3', maxRotation: 0, autoSkip: true } },
+          y: { beginAtZero: true, grid: { color: 'rgba(42,46,69,0.4)' }, title: { display: true, text: 'Gallons', color: '#8b8fa3' }, ticks: { color: '#8b8fa3' } }
+        },
+        plugins: {
+          legend: { display: true, labels: { color: '#8b8fa3' } },
+          tooltip: { callbacks: { label: ctx => ctx.raw.y.toFixed(2) + ' gal' } }
+        }
+      }
     });
   }
 
-  // MPG chart
+  // MPG chart (time-scaled x-axis)
   if (fuelSorted.length > 0) {
-    const mpgLabels = fuelSorted.filter(e => e._calcMpg).map(e => formatDate(e.date));
-    const mpgData = fuelSorted.filter(e => e._calcMpg).map(e => +e._calcMpg.toFixed(1));
+    const mpgData = fuelSorted.filter(e => e._calcMpg).map(e => ({ x: e.date, y: +e._calcMpg.toFixed(1) }));
     const mpgCtx = document.getElementById('chart-mpg');
+    const firstDateM = new Date(fuelSorted[0].date);
+    const lastDateM = new Date(fuelSorted[fuelSorted.length-1].date);
+    const spanDaysM = (lastDateM - firstDateM) / (1000*60*60*24);
+    const timeUnitM = spanDaysM > 180 ? 'month' : (spanDaysM > 30 ? 'week' : 'day');
     dashCharts.mpg = new Chart(mpgCtx, {
       type: 'line',
-      data: { labels: mpgLabels, datasets: [{ label: 'MPG', data: mpgData, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', borderWidth: 2, pointBackgroundColor: '#22d3ee', pointRadius: 5, fill: true, tension: 0.3 }] },
-      options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false, grid: { color: 'rgba(42,46,69,0.4)' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+      data: { datasets: [{ label: 'MPG', data: mpgData, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', borderWidth: 2, pointBackgroundColor: '#22d3ee', pointRadius: 5, fill: true, tension: 0.3 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { type: 'time', time: { unit: timeUnitM, tooltipFormat: 'MMM d, yyyy' }, grid: { display: false }, ticks: { color: '#8b8fa3', maxRotation: 0, autoSkip: true } },
+          y: { beginAtZero: false, grid: { color: 'rgba(42,46,69,0.4)' }, ticks: { color: '#8b8fa3' } }
+        },
+        plugins: { legend: { display: false } }
+      }
     });
   }
 
