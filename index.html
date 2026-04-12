@@ -203,6 +203,20 @@
   .btn-miles { background: var(--blue); color: #fff; }
   .btn-budget { background: var(--red); color: #fff; }
 
+  .dash-quick-btn {
+    padding: 6px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    color: var(--text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .dash-quick-btn:hover { color: var(--text); border-color: var(--blue); }
+  .dash-quick-btn.active { background: var(--blue); color: #fff; border-color: var(--blue); }
+
   /* Toast */
   .toast {
     position: fixed;
@@ -914,6 +928,37 @@
 <!-- ═══════════ DASHBOARD SCREEN ═══════════ -->
 <div id="screen-dash" class="screen">
   <div class="section-title"><span class="dot" style="background:var(--blue)"></span> Dashboard</div>
+
+  <!-- Dashboard filters -->
+  <div class="dash-filters" style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="dash-quick-btn" onclick="setDashRange('30d')">30D</button>
+      <button class="dash-quick-btn" onclick="setDashRange('90d')">90D</button>
+      <button class="dash-quick-btn" onclick="setDashRange('6m')">6M</button>
+      <button class="dash-quick-btn" onclick="setDashRange('ytd')">YTD</button>
+      <button class="dash-quick-btn" onclick="setDashRange('1y')">1Y</button>
+      <button class="dash-quick-btn active" onclick="setDashRange('all')">All</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <div style="flex:1;min-width:130px;">
+        <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px;">From</label>
+        <input type="date" id="dash-from" onchange="applyDashFilter()" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;">
+      </div>
+      <div style="flex:1;min-width:130px;">
+        <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px;">To</label>
+        <input type="date" id="dash-to" onchange="applyDashFilter()" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;">
+      </div>
+      <div style="flex:1;min-width:130px;">
+        <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px;">Group By</label>
+        <select id="dash-agg" onchange="applyDashFilter()" style="width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;">
+          <option value="entry">Per Fill-Up</option>
+          <option value="week">Weekly</option>
+          <option value="month">Monthly</option>
+          <option value="year">Yearly</option>
+        </select>
+      </div>
+    </div>
+  </div>
 
   <div class="dash-tab-nav">
     <button class="dash-tab-btn active" onclick="switchDashTab('overview',this)">Overview</button>
@@ -1801,6 +1846,64 @@ function sendToSheets(sheet, rowData) {
 
 // ═══════════ DASHBOARD ═══════════
 let dashCharts = {};
+let dashFilter = { from: '', to: '', agg: 'entry', range: 'all' };
+
+function setDashRange(range) {
+  const now = new Date();
+  let from = '', to = now.toISOString().split('T')[0];
+  if (range === '30d') { const d = new Date(now); d.setDate(d.getDate() - 30); from = d.toISOString().split('T')[0]; }
+  else if (range === '90d') { const d = new Date(now); d.setDate(d.getDate() - 90); from = d.toISOString().split('T')[0]; }
+  else if (range === '6m') { const d = new Date(now); d.setMonth(d.getMonth() - 6); from = d.toISOString().split('T')[0]; }
+  else if (range === 'ytd') { from = now.getFullYear() + '-01-01'; }
+  else if (range === '1y') { const d = new Date(now); d.setFullYear(d.getFullYear() - 1); from = d.toISOString().split('T')[0]; }
+  else if (range === 'all') { from = ''; to = ''; }
+  dashFilter.range = range;
+  dashFilter.from = from;
+  dashFilter.to = to;
+  document.getElementById('dash-from').value = from;
+  document.getElementById('dash-to').value = to;
+  document.querySelectorAll('.dash-quick-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+  renderDashboard();
+}
+
+function applyDashFilter() {
+  dashFilter.from = document.getElementById('dash-from').value;
+  dashFilter.to = document.getElementById('dash-to').value;
+  dashFilter.agg = document.getElementById('dash-agg').value;
+  // Clear quick range highlight if user manually changed dates
+  dashFilter.range = 'custom';
+  document.querySelectorAll('.dash-quick-btn').forEach(b => b.classList.remove('active'));
+  renderDashboard();
+}
+
+function inRange(dateStr) {
+  if (!dateStr) return true;
+  if (dashFilter.from && dateStr < dashFilter.from) return false;
+  if (dashFilter.to && dateStr > dashFilter.to) return false;
+  return true;
+}
+
+function periodKey(dateStr) {
+  if (!dateStr) return '';
+  if (dashFilter.agg === 'year') return dateStr.substring(0, 4);
+  if (dashFilter.agg === 'month') return dateStr.substring(0, 7);
+  if (dashFilter.agg === 'week') {
+    // Return Monday of that week as YYYY-MM-DD
+    const d = new Date(dateStr);
+    const day = d.getDay(); // 0=Sun, 1=Mon...
+    const diff = (day === 0 ? -6 : 1 - day);
+    d.setDate(d.getDate() + diff);
+    return d.toISOString().split('T')[0];
+  }
+  return dateStr; // per-entry
+}
+
+function periodStartDate(key) {
+  if (dashFilter.agg === 'year') return key + '-01-01';
+  if (dashFilter.agg === 'month') return key + '-01';
+  return key;
+}
 
 function switchDashTab(tab, btn) {
   document.querySelectorAll('.dash-section').forEach(s => s.classList.remove('active'));
@@ -1814,10 +1917,10 @@ function renderDashboard() {
   Object.values(dashCharts).forEach(c => c.destroy());
   dashCharts = {};
 
-  const fuelEntries = entries.filter(e => e.type === 'fuel');
-  const reimbEntries = entries.filter(e => e.type === 'reimb');
-  const maintEntries = entries.filter(e => e.type === 'maint');
-  const defEntries = entries.filter(e => e.type === 'def');
+  const fuelEntries = entries.filter(e => e.type === 'fuel' && inRange(e.date));
+  const reimbEntries = entries.filter(e => e.type === 'reimb' && inRange(e.date));
+  const maintEntries = entries.filter(e => e.type === 'maint' && inRange(e.date));
+  const defEntries = entries.filter(e => e.type === 'def' && inRange(e.date));
 
   // Compute stats
   const totalFuelSpend = fuelEntries.reduce((s,e) => s + e.spend, 0);
@@ -1937,19 +2040,33 @@ function renderDashboard() {
   fuelTableHtml += '</tbody></table>';
   document.getElementById('fuel-table-wrap').innerHTML = fuelTableHtml;
 
-  // Fuel Volume bar chart (time-scaled x-axis)
+  // Fuel Volume bar chart (time-scaled, with aggregation)
   if (fuelSorted.length > 0) {
-    const volData = fuelSorted.map(e => ({ x: e.date, y: +(e.volume || 0).toFixed(2) }));
     const fuelLabel = (settings.fuelType === 'gas') ? 'Gasoline (gal)' : 'Diesel (gal)';
+    let volData;
+    if (dashFilter.agg === 'entry') {
+      volData = fuelSorted.map(e => ({ x: e.date, y: +(e.volume || 0).toFixed(2) }));
+    } else {
+      // Aggregate: sum volume per period
+      const buckets = {};
+      fuelSorted.forEach(e => {
+        const k = periodKey(e.date);
+        if (!buckets[k]) buckets[k] = 0;
+        buckets[k] += (e.volume || 0);
+      });
+      volData = Object.keys(buckets).sort().map(k => ({ x: periodStartDate(k), y: +buckets[k].toFixed(2) }));
+    }
     const volCtx = document.getElementById('chart-volume');
-    // Determine time unit based on span
     const firstDate = new Date(fuelSorted[0].date);
     const lastDate = new Date(fuelSorted[fuelSorted.length-1].date);
     const spanDays = (lastDate - firstDate) / (1000*60*60*24);
-    const timeUnit = spanDays > 180 ? 'month' : (spanDays > 30 ? 'week' : 'day');
+    const timeUnit = dashFilter.agg === 'year' ? 'year'
+                    : dashFilter.agg === 'month' ? 'month'
+                    : dashFilter.agg === 'week' ? 'week'
+                    : (spanDays > 180 ? 'month' : (spanDays > 30 ? 'week' : 'day'));
     dashCharts.volume = new Chart(volCtx, {
       type: 'bar',
-      data: { datasets: [{ label: fuelLabel, data: volData, backgroundColor: 'rgba(251,146,60,0.7)', borderColor: '#fb923c', borderWidth: 1, borderRadius: 4, barThickness: 'flex', maxBarThickness: 30 }] },
+      data: { datasets: [{ label: fuelLabel, data: volData, backgroundColor: 'rgba(251,146,60,0.7)', borderColor: '#fb923c', borderWidth: 1, borderRadius: 4, barThickness: 'flex', maxBarThickness: 40 }] },
       options: {
         responsive: true, maintainAspectRatio: false,
         scales: {
@@ -1964,14 +2081,42 @@ function renderDashboard() {
     });
   }
 
-  // MPG chart (time-scaled x-axis)
+  // MPG chart (time-scaled, with aggregation)
   if (fuelSorted.length > 0) {
-    const mpgData = fuelSorted.filter(e => e._calcMpg).map(e => ({ x: e.date, y: +e._calcMpg.toFixed(1) }));
+    let mpgData;
+    if (dashFilter.agg === 'entry') {
+      mpgData = fuelSorted.filter(e => e._calcMpg).map(e => ({ x: e.date, y: +e._calcMpg.toFixed(1) }));
+    } else {
+      // Weighted average MPG per period: sum miles / sum gallons across full-fill segments ending in that period
+      const buckets = {};
+      mpgEntries.forEach(e => {
+        const idx = fuelByOdo.indexOf(e);
+        let prevFullIdx = -1;
+        for (let j = idx - 1; j >= 0; j--) {
+          if (fuelByOdo[j].filledToFull !== false) { prevFullIdx = j; break; }
+        }
+        const miles = prevFullIdx >= 0 ? e.odometer - fuelByOdo[prevFullIdx].odometer : 0;
+        let gal = 0;
+        for (let j = (prevFullIdx >= 0 ? prevFullIdx + 1 : 0); j <= idx; j++) {
+          gal += fuelByOdo[j].volume || 0;
+        }
+        const k = periodKey(e.date);
+        if (!buckets[k]) buckets[k] = { miles: 0, gal: 0 };
+        buckets[k].miles += miles;
+        buckets[k].gal += gal;
+      });
+      mpgData = Object.keys(buckets).sort()
+        .filter(k => buckets[k].gal > 0)
+        .map(k => ({ x: periodStartDate(k), y: +(buckets[k].miles / buckets[k].gal).toFixed(1) }));
+    }
     const mpgCtx = document.getElementById('chart-mpg');
     const firstDateM = new Date(fuelSorted[0].date);
     const lastDateM = new Date(fuelSorted[fuelSorted.length-1].date);
     const spanDaysM = (lastDateM - firstDateM) / (1000*60*60*24);
-    const timeUnitM = spanDaysM > 180 ? 'month' : (spanDaysM > 30 ? 'week' : 'day');
+    const timeUnitM = dashFilter.agg === 'year' ? 'year'
+                     : dashFilter.agg === 'month' ? 'month'
+                     : dashFilter.agg === 'week' ? 'week'
+                     : (spanDaysM > 180 ? 'month' : (spanDaysM > 30 ? 'week' : 'day'));
     dashCharts.mpg = new Chart(mpgCtx, {
       type: 'line',
       data: { datasets: [{ label: 'MPG', data: mpgData, borderColor: '#22d3ee', backgroundColor: 'rgba(34,211,238,0.1)', borderWidth: 2, pointBackgroundColor: '#22d3ee', pointRadius: 5, fill: true, tension: 0.3 }] },
