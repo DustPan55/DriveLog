@@ -973,6 +973,26 @@
   <div id="dash-overview" class="dash-section active">
     <div class="kpi-row" id="kpi-overview"></div>
     <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--orange)"></span> Spend Trend Over Time</div>
+      <div class="chart-wrap"><canvas id="chart-spend-trend"></canvas></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--blue)"></span> Cumulative Spend vs Reimbursed</div>
+      <div class="chart-wrap"><canvas id="chart-cumulative"></canvas></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--orange)"></span> <span id="fuel-trend-title">Fuel Volume Over Time</span></div>
+      <div class="chart-wrap"><canvas id="chart-fuel-trend"></canvas></div>
+    </div>
+    <div class="dash-card" id="card-def-trend">
+      <div class="dash-card-title"><span class="dot" style="background:var(--cyan)"></span> DEF Volume Over Time</div>
+      <div class="chart-wrap"><canvas id="chart-def-trend"></canvas></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-title"><span class="dot" style="background:var(--purple)"></span> Monthly Miles Driven</div>
+      <div class="chart-wrap"><canvas id="chart-miles-trend"></canvas></div>
+    </div>
+    <div class="dash-card">
       <div class="dash-card-title"><span class="dot" style="background:var(--orange)"></span> Spend Breakdown</div>
       <div class="chart-wrap"><canvas id="chart-spend-pie"></canvas></div>
     </div>
@@ -1912,6 +1932,172 @@ function switchDashTab(tab, btn) {
   btn.classList.add('active');
 }
 
+// Helper: bucket entries by period key, returning sorted [{x, y}]
+function bucketByPeriod(entries, valueFn) {
+  const buckets = {};
+  entries.forEach(e => {
+    const k = periodKey(e.date);
+    if (!buckets[k]) buckets[k] = 0;
+    buckets[k] += valueFn(e);
+  });
+  return Object.keys(buckets).sort().map(k => ({ x: periodStartDate(k), y: +buckets[k].toFixed(2) }));
+}
+
+function getTimeUnit(firstDate, lastDate) {
+  if (dashFilter.agg === 'year') return 'year';
+  if (dashFilter.agg === 'month') return 'month';
+  if (dashFilter.agg === 'week') return 'week';
+  const spanDays = (new Date(lastDate) - new Date(firstDate)) / (1000*60*60*24);
+  return spanDays > 180 ? 'month' : (spanDays > 30 ? 'week' : 'day');
+}
+
+function renderOverviewTrends(fuelEntries, maintEntries, defEntries, reimbEntries, fuelByOdo) {
+  // Update fuel trend title based on fuel type
+  const fuelTrendTitle = document.getElementById('fuel-trend-title');
+  if (fuelTrendTitle) fuelTrendTitle.textContent = (settings.fuelType === 'gas' ? 'Gasoline' : 'Diesel') + ' Volume Over Time';
+
+  // Hide DEF trend card if not diesel
+  const defCard = document.getElementById('card-def-trend');
+  if (defCard) defCard.style.display = (settings.fuelType === 'diesel') ? '' : 'none';
+
+  // Build unified date range for time axis
+  const allDates = [...fuelEntries, ...maintEntries, ...defEntries, ...reimbEntries].map(e => e.date).filter(Boolean).sort();
+  if (allDates.length === 0) return;
+  const firstDate = allDates[0];
+  const lastDate = allDates[allDates.length - 1];
+  const timeUnit = getTimeUnit(firstDate, lastDate);
+
+  const commonTimeScale = (unit) => ({
+    type: 'time', time: { unit, tooltipFormat: 'MMM d, yyyy' },
+    grid: { display: false },
+    ticks: { color: '#8b8fa3', maxRotation: 0, autoSkip: true }
+  });
+
+  // 1. Spend Trend — stacked bar: Fuel + Maint + DEF per period
+  const fuelSpendByPeriod = bucketByPeriod(fuelEntries, e => e.spend || 0);
+  const maintSpendByPeriod = bucketByPeriod(maintEntries, e => e.spend || 0);
+  const defSpendByPeriod = bucketByPeriod(defEntries, e => e.spend || 0);
+  const spendCtx = document.getElementById('chart-spend-trend');
+  dashCharts.spendTrend = new Chart(spendCtx, {
+    type: 'bar',
+    data: {
+      datasets: [
+        { label: 'Fuel', data: fuelSpendByPeriod, backgroundColor: 'rgba(251,146,60,0.8)', borderColor: '#fb923c', borderWidth: 1, borderRadius: 4, stack: 'spend' },
+        { label: 'Maintenance', data: maintSpendByPeriod, backgroundColor: 'rgba(167,139,250,0.8)', borderColor: '#a78bfa', borderWidth: 1, borderRadius: 4, stack: 'spend' },
+        { label: 'DEF', data: defSpendByPeriod, backgroundColor: 'rgba(34,211,238,0.8)', borderColor: '#22d3ee', borderWidth: 1, borderRadius: 4, stack: 'spend' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { ...commonTimeScale(timeUnit), stacked: true },
+        y: { beginAtZero: true, stacked: true, grid: { color: 'rgba(42,46,69,0.4)' }, title: { display: true, text: 'Spend ($)', color: '#8b8fa3' }, ticks: { color: '#8b8fa3', callback: v => '$' + v } }
+      },
+      plugins: {
+        legend: { display: true, labels: { color: '#8b8fa3' } },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': $' + ctx.raw.y.toFixed(2) } }
+      }
+    }
+  });
+
+  // 2. Cumulative Spend vs Reimbursed — line chart
+  // Build running totals per entry sorted by date
+  const allSpendEntries = [...fuelEntries, ...maintEntries, ...defEntries].sort((a,b) => a.date.localeCompare(b.date));
+  let runSpend = 0;
+  const cumSpendData = allSpendEntries.map(e => { runSpend += e.spend || 0; return { x: e.date, y: +runSpend.toFixed(2) }; });
+  const reimbSorted = [...reimbEntries].sort((a,b) => a.date.localeCompare(b.date));
+  let runReimb = 0;
+  const cumReimbData = reimbSorted.map(e => { runReimb += e.value || 0; return { x: e.date, y: +runReimb.toFixed(2) }; });
+  const cumCtx = document.getElementById('chart-cumulative');
+  dashCharts.cumulative = new Chart(cumCtx, {
+    type: 'line',
+    data: {
+      datasets: [
+        { label: 'Cumulative Spend', data: cumSpendData, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.15)', borderWidth: 2, pointRadius: 3, fill: true, tension: 0.2, stepped: false },
+        { label: 'Cumulative Reimbursed', data: cumReimbData, borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.15)', borderWidth: 2, pointRadius: 3, fill: true, tension: 0.2 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: commonTimeScale(timeUnit),
+        y: { beginAtZero: true, grid: { color: 'rgba(42,46,69,0.4)' }, ticks: { color: '#8b8fa3', callback: v => '$' + v } }
+      },
+      plugins: {
+        legend: { display: true, labels: { color: '#8b8fa3' } },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ': $' + ctx.raw.y.toFixed(2) } }
+      }
+    }
+  });
+
+  // 3. Fuel Volume Trend — bar per period
+  const fuelVolByPeriod = bucketByPeriod(fuelEntries, e => e.volume || 0);
+  const fuelTrendCtx = document.getElementById('chart-fuel-trend');
+  dashCharts.fuelTrend = new Chart(fuelTrendCtx, {
+    type: 'bar',
+    data: { datasets: [{ label: 'Gallons', data: fuelVolByPeriod, backgroundColor: 'rgba(251,146,60,0.7)', borderColor: '#fb923c', borderWidth: 1, borderRadius: 4, maxBarThickness: 40 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: commonTimeScale(timeUnit),
+        y: { beginAtZero: true, grid: { color: 'rgba(42,46,69,0.4)' }, title: { display: true, text: 'Gallons', color: '#8b8fa3' }, ticks: { color: '#8b8fa3' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.raw.y.toFixed(2) + ' gal' } }
+      }
+    }
+  });
+
+  // 4. DEF Volume Trend — bar per period (only if diesel)
+  if (settings.fuelType === 'diesel') {
+    const defVolByPeriod = bucketByPeriod(defEntries, e => e.volume || 0);
+    const defCtx = document.getElementById('chart-def-trend');
+    dashCharts.defTrend = new Chart(defCtx, {
+      type: 'bar',
+      data: { datasets: [{ label: 'DEF Gallons', data: defVolByPeriod, backgroundColor: 'rgba(34,211,238,0.7)', borderColor: '#22d3ee', borderWidth: 1, borderRadius: 4, maxBarThickness: 40 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: commonTimeScale(timeUnit),
+          y: { beginAtZero: true, grid: { color: 'rgba(42,46,69,0.4)' }, title: { display: true, text: 'Gallons', color: '#8b8fa3' }, ticks: { color: '#8b8fa3' } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ctx => ctx.raw.y.toFixed(2) + ' gal DEF' } }
+        }
+      }
+    });
+  }
+
+  // 5. Miles Driven Trend — bar per period (derived from consecutive fuel odometer readings)
+  const milesByPeriod = {};
+  for (let i = 1; i < fuelByOdo.length; i++) {
+    const miles = fuelByOdo[i].odometer - fuelByOdo[i-1].odometer;
+    if (miles <= 0) continue;
+    const k = periodKey(fuelByOdo[i].date);
+    if (!milesByPeriod[k]) milesByPeriod[k] = 0;
+    milesByPeriod[k] += miles;
+  }
+  const milesData = Object.keys(milesByPeriod).sort().map(k => ({ x: periodStartDate(k), y: +milesByPeriod[k].toFixed(1) }));
+  const milesCtx = document.getElementById('chart-miles-trend');
+  dashCharts.milesTrend = new Chart(milesCtx, {
+    type: 'bar',
+    data: { datasets: [{ label: 'Miles', data: milesData, backgroundColor: 'rgba(167,139,250,0.7)', borderColor: '#a78bfa', borderWidth: 1, borderRadius: 4, maxBarThickness: 40 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: commonTimeScale(timeUnit),
+        y: { beginAtZero: true, grid: { color: 'rgba(42,46,69,0.4)' }, title: { display: true, text: 'Miles', color: '#8b8fa3' }, ticks: { color: '#8b8fa3' } }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.raw.y.toFixed(1) + ' mi' } }
+      }
+    }
+  });
+}
+
 function renderDashboard() {
   // Destroy old charts
   Object.values(dashCharts).forEach(c => c.destroy());
@@ -2020,6 +2206,9 @@ function renderDashboard() {
       plugins: { legend: { position: 'bottom', labels: { color: '#8b8fa3', padding: 16, usePointStyle: true, pointStyle: 'circle' } },
         tooltip: { callbacks: { label: ctx => ctx.label + ': $' + (ctx.raw < 0.02 ? '0.00' : ctx.raw.toFixed(2)) } } } }
   });
+
+  // ── OVERVIEW TREND CHARTS ──
+  renderOverviewTrends(fuelEntries, maintEntries, defEntries, reimbEntries, fuelByOdo);
 
   // ── FUEL TAB ──
   document.getElementById('kpi-fuel').innerHTML = `
