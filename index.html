@@ -758,9 +758,8 @@
     </div>
   </div>
 
-  <div class="form-group">
-    <label>Date Received (leave blank if pending)</label>
-    <input type="date" id="reimb-received">
+  <div style="font-size:12px;color:var(--text2);background:rgba(96,165,250,0.08);border-left:3px solid var(--blue);padding:10px 12px;border-radius:6px;margin-bottom:14px;">
+    New entries start as <strong>Submitted</strong>. Use the <strong>Update Status</strong> button on the history card to advance through the workflow as the reimbursement progresses — every change is timestamped so you can track time at each step.
   </div>
 
   <button class="submit-btn btn-reimb" onclick="submitReimb()">Log Reimbursement</button>
@@ -1277,11 +1276,46 @@ try {
   console.warn('Supabase init failed:', e);
 }
 
+// Migrate legacy reimb entries to new status model + statusHistory log
+function migrateReimbEntries() {
+  entries.forEach(e => {
+    if (e.type !== 'reimb') return;
+    if (!e.status) {
+      // Legacy: had `received` field for date received
+      if (e.received) {
+        e.dateReceived = e.received;
+        e.status = 'received';
+      } else {
+        e.status = 'submitted';
+      }
+    }
+    // Ensure all date fields exist (kept for back-compat & dashboard fallbacks)
+    if (e.dateApproved === undefined) e.dateApproved = '';
+    if (e.dateSentBack === undefined) e.dateSentBack = '';
+    if (e.dateSentForPayment === undefined) e.dateSentForPayment = '';
+    if (e.dateReceived === undefined) e.dateReceived = e.received || '';
+    if (e.rejectionReason === undefined) e.rejectionReason = '';
+
+    // Build statusHistory if missing — derive from existing date fields
+    if (!Array.isArray(e.statusHistory) || e.statusHistory.length === 0) {
+      const history = [];
+      // Always start with submitted
+      history.push({ status: 'submitted', date: e.date, note: '', timestamp: e.timestamp || Date.now() });
+      if (e.dateApproved)        history.push({ status: 'approved',         date: e.dateApproved,        note: '', timestamp: 0 });
+      if (e.dateSentBack)        history.push({ status: 'sent_back',        date: e.dateSentBack,        note: e.rejectionReason || '', timestamp: 0 });
+      if (e.dateSentForPayment)  history.push({ status: 'sent_for_payment', date: e.dateSentForPayment,  note: '', timestamp: 0 });
+      if (e.dateReceived)        history.push({ status: 'received',         date: e.dateReceived,        note: '', timestamp: 0 });
+      e.statusHistory = history;
+    }
+  });
+}
+
 // Load from localStorage on init
 try {
   const saved = localStorage.getItem('vehicleEntries');
   if (saved) {
     entries = JSON.parse(saved);
+    migrateReimbEntries();
   } else {
     // First visit — load seed data
     entries = [...SEED_ENTRIES];
@@ -1424,6 +1458,7 @@ async function loadFromCloud() {
 
     if (cloudEntries && cloudEntries.length > 0) {
       entries = cloudEntries.map(r => r.data);
+      migrateReimbEntries();
       localStorage.setItem('vehicleEntries', JSON.stringify(entries));
     } else if (entries.length > 0) {
       // Local has data but cloud is empty — push local up
@@ -1654,29 +1689,86 @@ function submitReimb() {
   const date = document.getElementById('reimb-date').value;
   const miles = parseFloat(document.getElementById('reimb-miles').value);
   const value = parseFloat(document.getElementById('reimb-value').value);
-  const received = document.getElementById('reimb-received').value || '';
 
   if (!date || !miles || !value) {
     showToast('Date, miles & value are required', true);
     return;
   }
 
-  const entry = {
-    type: 'reimb', date, miles, value, received,
-    timestamp: Date.now()
-  };
-
   if (editingIndex >= 0) {
-    entries[editingIndex] = entry;
+    // Editing an existing entry — preserve its status history
+    const existing = entries[editingIndex];
+    existing.date = date;
+    existing.miles = miles;
+    existing.value = value;
+    // Keep first history record's date in sync with submitted date
+    if (existing.statusHistory && existing.statusHistory.length > 0) {
+      existing.statusHistory[0].date = date;
+    }
     editingIndex = -1;
     showToast('Reimbursement updated!');
   } else {
+    const ts = Date.now();
+    const entry = {
+      type: 'reimb', date, miles, value,
+      status: 'submitted',
+      dateApproved: '', dateSentBack: '', dateSentForPayment: '', dateReceived: '',
+      rejectionReason: '',
+      received: '', // legacy field for backward compat
+      statusHistory: [{ status: 'submitted', date, note: '', timestamp: ts }],
+      timestamp: ts
+    };
     entries.unshift(entry);
-    sendToSheets('reimbursement', [date, miles, value, received]);
+    sendToSheets('reimbursement', [date, miles, value, '']);
     showToast('Reimbursement logged!');
   }
   saveEntries();
   clearForm('reimb');
+}
+
+// Append a new status transition to a reimbursement entry
+function addReimbStatus(idx) {
+  const e = entries[idx];
+  if (!e || e.type !== 'reimb') return;
+  const newStatus = document.getElementById('upd-status-' + idx).value;
+  const newDate = document.getElementById('upd-date-' + idx).value;
+  const newNote = document.getElementById('upd-note-' + idx).value.trim();
+  if (!newStatus || !newDate) {
+    showToast('Status & date required', true);
+    return;
+  }
+  if (!Array.isArray(e.statusHistory)) e.statusHistory = [];
+  e.statusHistory.push({ status: newStatus, date: newDate, note: newNote, timestamp: Date.now() });
+  e.status = newStatus;
+  // Keep convenience date fields in sync (used as dashboard fallback)
+  if (newStatus === 'approved') e.dateApproved = newDate;
+  if (newStatus === 'sent_back') { e.dateSentBack = newDate; if (newNote) e.rejectionReason = newNote; }
+  if (newStatus === 'sent_for_payment') e.dateSentForPayment = newDate;
+  if (newStatus === 'received') { e.dateReceived = newDate; e.received = newDate; }
+  saveEntries();
+  renderHistoryPanel('reimb');
+  showToast('Status updated');
+}
+
+// Toggle the inline update form on a reimb history card
+function toggleReimbUpdate(idx) {
+  const el = document.getElementById('upd-form-' + idx);
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// Remove a single status-history record (in case of mistake)
+function removeReimbStatusRecord(idx, recordIdx) {
+  const e = entries[idx];
+  if (!e || !Array.isArray(e.statusHistory)) return;
+  if (recordIdx === 0) { showToast('Cannot remove the initial submission', true); return; }
+  e.statusHistory.splice(recordIdx, 1);
+  // Recompute current status from the last remaining record
+  const last = e.statusHistory[e.statusHistory.length - 1];
+  if (last) e.status = last.status;
+  saveEntries();
+  renderHistoryPanel('reimb');
+  showToast('History record removed');
 }
 
 function submitMaint() {
@@ -2187,9 +2279,43 @@ function renderDashboard() {
   }, 0);
   const avgMpg = totalMpgGallons > 0 ? totalMpgMiles / totalMpgGallons : 0;
   const totalReimbVal = reimbEntries.reduce((s,e) => s + e.value, 0);
-  const reimbReceived = reimbEntries.filter(e => e.received).reduce((s,e) => s + e.value, 0);
+  const reimbStatusOf = (e) => e.status || ((e.dateReceived || e.received) ? 'received' : 'submitted');
+  const reimbReceived = reimbEntries.filter(e => reimbStatusOf(e) === 'received').reduce((s,e) => s + e.value, 0);
   const reimbPending = totalReimbVal - reimbReceived;
   const totalReimbMiles = reimbEntries.reduce((s,e) => s + e.miles, 0);
+  // Pipeline counts & values per status
+  const reimbPipeline = { submitted: {n:0,v:0}, approved: {n:0,v:0}, sent_back: {n:0,v:0}, sent_for_payment: {n:0,v:0}, received: {n:0,v:0} };
+  reimbEntries.forEach(e => { const st = reimbStatusOf(e); if (reimbPipeline[st]) { reimbPipeline[st].n++; reimbPipeline[st].v += e.value; } });
+  // Timing metrics: derive stage dates from statusHistory (falling back to legacy date fields)
+  // Returns the FIRST date a given status was set; for `submitted` it's the entry's date.
+  const firstStatusDate = (e, target) => {
+    if (Array.isArray(e.statusHistory)) {
+      for (const h of e.statusHistory) { if (h.status === target) return h.date; }
+    }
+    if (target === 'submitted') return e.date;
+    if (target === 'approved') return e.dateApproved || null;
+    if (target === 'sent_back') return e.dateSentBack || null;
+    if (target === 'sent_for_payment') return e.dateSentForPayment || null;
+    if (target === 'received') return e.dateReceived || e.received || null;
+    return null;
+  };
+  const daysBetween = (a, b) => { if (!a || !b) return null; const d = (new Date(b) - new Date(a)) / (1000*60*60*24); return d >= 0 ? d : null; };
+  const avgOf = arr => arr.length ? (arr.reduce((s,n)=>s+n,0) / arr.length) : null;
+  const submitToApprove = [], approveToPayment = [], paymentToReceived = [], submitToReceived = [];
+  reimbEntries.forEach(e => {
+    const dSub = firstStatusDate(e, 'submitted');
+    const dApp = firstStatusDate(e, 'approved');
+    const dPay = firstStatusDate(e, 'sent_for_payment');
+    const dRec = firstStatusDate(e, 'received');
+    const a = daysBetween(dSub, dApp); if (a !== null) submitToApprove.push(a);
+    const b = daysBetween(dApp, dPay); if (b !== null) approveToPayment.push(b);
+    const c = daysBetween(dPay, dRec); if (c !== null) paymentToReceived.push(c);
+    const d = daysBetween(dSub, dRec); if (d !== null) submitToReceived.push(d);
+  });
+  const avgSubmitToApprove = avgOf(submitToApprove);
+  const avgApproveToPayment = avgOf(approveToPayment);
+  const avgPaymentToReceived = avgOf(paymentToReceived);
+  const avgSubmitToReceived = avgOf(submitToReceived);
   const netPosition = totalReimbVal - totalSpend;
   const totalDefVol = defEntries.reduce((s,e) => s + e.volume, 0);
 
@@ -2214,13 +2340,19 @@ function renderDashboard() {
         tooltip: { callbacks: { label: ctx => ctx.label + ': $' + (ctx.raw < 0.02 ? '0.00' : ctx.raw.toFixed(2)) } } } }
   });
 
-  // Reimb pie
+  // Reimb pie - pipeline breakdown
   const reimbCtx = document.getElementById('chart-reimb-pie');
   dashCharts.reimbPie = new Chart(reimbCtx, {
     type: 'doughnut',
     data: {
-      labels: ['Received', 'Pending'],
-      datasets: [{ data: [reimbReceived || 0.01, reimbPending || 0.01], backgroundColor: ['#34d399','#fb923c'], borderWidth: 0 }]
+      labels: ['Submitted', 'Approved', 'Sent Back', 'Sent for Payment', 'Received'],
+      datasets: [{ data: [
+        reimbPipeline.submitted.v || 0.01,
+        reimbPipeline.approved.v || 0.01,
+        reimbPipeline.sent_back.v || 0.01,
+        reimbPipeline.sent_for_payment.v || 0.01,
+        reimbPipeline.received.v || 0.01
+      ], backgroundColor: ['#60a5fa','#a78bfa','#f87171','#fb923c','#34d399'], borderWidth: 0 }]
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: '60%',
       plugins: { legend: { position: 'bottom', labels: { color: '#8b8fa3', padding: 16, usePointStyle: true, pointStyle: 'circle' } },
@@ -2341,18 +2473,34 @@ function renderDashboard() {
   }
 
   // ── REIMB TAB ──
+  const fmtDays = d => d === null ? '—' : (d < 1 ? '<1d' : d.toFixed(1) + 'd');
   document.getElementById('kpi-reimb').innerHTML = `
     <div class="kpi-card"><div class="kpi-label">Total Claimed</div><div class="kpi-value v-blue">$${totalReimbVal.toFixed(2)}</div><div class="kpi-sub">${reimbEntries.length} submission${reimbEntries.length!==1?'s':''}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Received</div><div class="kpi-value v-green">$${reimbReceived.toFixed(2)}</div></div>
-    <div class="kpi-card"><div class="kpi-label">Pending</div><div class="kpi-value v-orange">$${reimbPending.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Received</div><div class="kpi-value v-green">$${reimbReceived.toFixed(2)}</div><div class="kpi-sub">${reimbPipeline.received.n} entries</div></div>
+    <div class="kpi-card"><div class="kpi-label">In Pipeline</div><div class="kpi-value v-orange">$${reimbPending.toFixed(2)}</div><div class="kpi-sub">${reimbEntries.length - reimbPipeline.received.n} entries</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg Time to Pay</div><div class="kpi-value v-cyan">${fmtDays(avgSubmitToReceived)}</div><div class="kpi-sub">Submit → Received</div></div>
+    <div class="kpi-card"><div class="kpi-label">Submitted</div><div class="kpi-value v-blue">${reimbPipeline.submitted.n}</div><div class="kpi-sub">$${reimbPipeline.submitted.v.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Approved</div><div class="kpi-value v-purple">${reimbPipeline.approved.n}</div><div class="kpi-sub">$${reimbPipeline.approved.v.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Sent Back</div><div class="kpi-value v-red">${reimbPipeline.sent_back.n}</div><div class="kpi-sub">$${reimbPipeline.sent_back.v.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Sent for Payment</div><div class="kpi-value v-orange">${reimbPipeline.sent_for_payment.n}</div><div class="kpi-sub">$${reimbPipeline.sent_for_payment.v.toFixed(2)}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Submit → Approve</div><div class="kpi-value v-cyan">${fmtDays(avgSubmitToApprove)}</div><div class="kpi-sub">Avg manager review</div></div>
+    <div class="kpi-card"><div class="kpi-label">Approve → Payment</div><div class="kpi-value v-cyan">${fmtDays(avgApproveToPayment)}</div><div class="kpi-sub">Avg processing</div></div>
+    <div class="kpi-card"><div class="kpi-label">Payment → Received</div><div class="kpi-value v-cyan">${fmtDays(avgPaymentToReceived)}</div><div class="kpi-sub">Avg deposit time</div></div>
     <div class="kpi-card"><div class="kpi-label">Miles Claimed</div><div class="kpi-value v-purple">${totalReimbMiles.toFixed(1)}</div><div class="kpi-sub">${totalReimbMiles > 0 ? 'Avg $'+(totalReimbVal/totalReimbMiles).toFixed(3)+'/mi' : ''}</div></div>
   `;
 
-  const reimbSorted = [...reimbEntries].sort((a,b) => a.date.localeCompare(b.date));
-  let reimbHtml = '<table class="dash-table"><thead><tr><th>Date</th><th>Miles</th><th>Value</th><th>Status</th></tr></thead><tbody>';
+  const statusLabelsMap = { submitted: 'Submitted', approved: 'Approved', sent_back: 'Sent Back', sent_for_payment: 'Sent for Payment', received: 'Received' };
+  const statusColorMap = { submitted: '#60a5fa', approved: '#a78bfa', sent_back: '#f87171', sent_for_payment: '#fb923c', received: '#34d399' };
+  const reimbSorted = [...reimbEntries].sort((a,b) => b.date.localeCompare(a.date));
+  let reimbHtml = '<table class="dash-table"><thead><tr><th>Submitted</th><th>Miles</th><th>Value</th><th>Status</th><th>Approved</th><th>Payment</th><th>Received</th><th>Days</th></tr></thead><tbody>';
   reimbSorted.forEach(e => {
-    const status = e.received ? '<span style="color:var(--green)">Received</span>' : '<span style="color:var(--orange)">Pending</span>';
-    reimbHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.miles.toFixed(1)}</td><td>$${e.value.toFixed(2)}</td><td>${status}</td></tr>`;
+    const st = reimbStatusOf(e);
+    const pill = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${statusColorMap[st]};color:#000;font-size:10px;font-weight:700;">${statusLabelsMap[st]}</span>`;
+    const dApp = firstStatusDate(e, 'approved');
+    const dPay = firstStatusDate(e, 'sent_for_payment');
+    const recv = firstStatusDate(e, 'received');
+    const totalDays = daysBetween(e.date, recv);
+    reimbHtml += `<tr><td>${formatDate(e.date)}</td><td>${e.miles.toFixed(1)}</td><td>$${e.value.toFixed(2)}</td><td>${pill}</td><td>${dApp ? formatDate(dApp) : '—'}</td><td>${dPay ? formatDate(dPay) : '—'}</td><td>${recv ? formatDate(recv) : '—'}</td><td>${totalDays !== null ? totalDays.toFixed(0) + 'd' : '—'}</td></tr>`;
   });
   reimbHtml += '</tbody></table>';
   if (reimbEntries.length > 0) {
@@ -2615,8 +2763,53 @@ function renderHistoryPanel(type) {
       info = `<div style="font-weight:600;font-size:14px">${e.station || 'Fill-up'}${e.city ? ' — ' + e.city : ''}</div>
         <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.odometer.toLocaleString()} mi · $${e.spend.toFixed(2)} · ${e.volume > 0 ? e.volume.toFixed(2) + ' gal' : ''}</div>`;
     } else if (type === 'reimb') {
-      info = `<div style="font-weight:600;font-size:14px">${e.miles.toFixed(1)} miles — $${e.value.toFixed(2)}</div>
-        <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.received ? 'Received ' + formatDate(e.received) : 'Pending'}</div>`;
+      const statusLabels = { submitted: 'Submitted', approved: 'Approved', sent_back: 'Sent Back', sent_for_payment: 'Sent for Payment', received: 'Received' };
+      const statusColors = { submitted: 'var(--blue)', approved: 'var(--purple)', sent_back: 'var(--red)', sent_for_payment: 'var(--orange)', received: 'var(--green)' };
+      const st = e.status || (e.received || e.dateReceived ? 'received' : 'submitted');
+      const pill = `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${statusColors[st]};color:#000;font-size:10px;font-weight:700;margin-left:6px;">${statusLabels[st]}</span>`;
+      const submittedDate = formatDate(e.date);
+
+      // Build the transition timeline from statusHistory
+      const history = Array.isArray(e.statusHistory) && e.statusHistory.length > 0 ? e.statusHistory : [{ status: st, date: e.date, note: '' }];
+      const sortedHist = [...history].sort((a,b) => a.date.localeCompare(b.date));
+      const firstDate = sortedHist[0].date;
+      const lastDate = sortedHist[sortedHist.length - 1].date;
+      const totalDays = firstDate && lastDate ? Math.round((new Date(lastDate) - new Date(firstDate)) / (1000*60*60*24)) : 0;
+      const totalDaysStr = sortedHist.length > 1 ? ` · ${totalDays}d in pipeline` : '';
+
+      let timelineHtml = '<div style="margin-top:10px;padding:10px;background:rgba(0,0,0,0.2);border-radius:6px;">';
+      timelineHtml += '<div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;">Status Timeline</div>';
+      sortedHist.forEach((h, hi) => {
+        const prev = hi > 0 ? sortedHist[hi - 1] : null;
+        const gapDays = prev ? Math.round((new Date(h.date) - new Date(prev.date)) / (1000*60*60*24)) : null;
+        const gapStr = gapDays !== null ? `<span style="color:var(--muted);font-size:10px;margin-left:6px;">(+${gapDays}d)</span>` : '';
+        const histPill = `<span style="display:inline-block;padding:1px 6px;border-radius:8px;background:${statusColors[h.status]};color:#000;font-size:9px;font-weight:700;">${statusLabels[h.status]}</span>`;
+        const realIdx = e.statusHistory.indexOf(h);
+        const removeBtn = hi === 0 ? '' : `<button onclick="removeReimbStatusRecord(${e._idx},${realIdx})" style="background:none;border:none;color:var(--red);font-size:10px;cursor:pointer;padding:0 4px;margin-left:4px;" title="Remove this record">✕</button>`;
+        timelineHtml += `<div style="font-size:11px;color:var(--text);padding:3px 0;">${histPill} <span style="color:var(--text2);">${formatDate(h.date)}</span>${gapStr}${h.note ? ' — <em style="color:var(--text2);">' + h.note.replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) + '</em>' : ''}${removeBtn}</div>`;
+      });
+      timelineHtml += '</div>';
+
+      // Inline "Update Status" form
+      const today = new Date().toISOString().split('T')[0];
+      const updateForm = `<div id="upd-form-${e._idx}" style="display:none;margin-top:10px;padding:10px;background:rgba(96,165,250,0.06);border:1px solid rgba(96,165,250,0.25);border-radius:6px;">
+        <div style="font-size:11px;color:var(--text2);font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Add Status Update</div>
+        <select id="upd-status-${e._idx}" style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;">
+          <option value="approved">Manager Approved</option>
+          <option value="sent_back">Sent Back (needs fix)</option>
+          <option value="sent_for_payment">Sent for Payment</option>
+          <option value="received">Received</option>
+          <option value="submitted">Re-submitted</option>
+        </select>
+        <input type="date" id="upd-date-${e._idx}" value="${today}" style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;">
+        <input type="text" id="upd-note-${e._idx}" placeholder="Optional note (e.g. rejection reason)" style="width:100%;padding:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;">
+        <button onclick="addReimbStatus(${e._idx})" style="width:100%;padding:8px;background:var(--green);color:#000;border:none;border-radius:6px;font-weight:700;cursor:pointer;">Save Update</button>
+      </div>`;
+
+      info = `<div style="font-weight:600;font-size:14px">${e.miles.toFixed(1)} miles — $${e.value.toFixed(2)}${pill}</div>
+        <div style="font-size:12px;color:var(--text2)">Submitted ${submittedDate}${totalDaysStr}</div>
+        ${timelineHtml}
+        ${updateForm}`;
     } else if (type === 'maint') {
       info = `<div style="font-weight:600;font-size:14px">${e.service}</div>
         <div style="font-size:12px;color:var(--text2)">${formatDate(e.date)} · ${e.odometer > 0 ? e.odometer.toLocaleString() + ' mi' : ''} · ${e.spend > 0 ? '$' + e.spend.toFixed(2) : '$0 (Covered)'}${e.notes ? ' · ' + e.notes : ''}</div>`;
@@ -2633,7 +2826,12 @@ function renderHistoryPanel(type) {
         <div style="font-size:12px;color:var(--text2)">${e.category} · $${e.cost.toFixed(2)} · <span style="color:${prioColor};font-weight:600;">${e.priority}</span>${e.target ? ' · by ' + formatDate(e.target) : ''}${e.notes ? ' · ' + e.notes : ''}</div>`;
     }
 
-    const extraBtns = type === 'budget' ? `<button class="hist-btn" style="background:${e.purchased ? 'var(--muted)' : 'var(--green)'};color:#000;font-size:11px;padding:4px 10px;border:none;border-radius:6px;cursor:pointer;" onclick="togglePurchased(${e._idx})">${e.purchased ? 'Undo' : 'Bought'}</button>` : '';
+    let extraBtns = '';
+    if (type === 'budget') {
+      extraBtns = `<button class="hist-btn" style="background:${e.purchased ? 'var(--muted)' : 'var(--green)'};color:#000;font-size:11px;padding:4px 10px;border:none;border-radius:6px;cursor:pointer;" onclick="togglePurchased(${e._idx})">${e.purchased ? 'Undo' : 'Bought'}</button>`;
+    } else if (type === 'reimb') {
+      extraBtns = `<button class="hist-btn" style="background:var(--blue);color:#000;font-size:11px;padding:4px 10px;border:none;border-radius:6px;cursor:pointer;" onclick="toggleReimbUpdate(${e._idx})">Update Status</button>`;
+    }
 
     return `<div class="hist-card" id="hist-card-${e._idx}">
       <div class="hist-card-top">
@@ -2684,7 +2882,6 @@ function editEntry(idx, type) {
     document.getElementById('reimb-date').value = e.date;
     document.getElementById('reimb-miles').value = e.miles;
     document.getElementById('reimb-value').value = e.value;
-    document.getElementById('reimb-received').value = e.received || '';
   } else if (type === 'maint') {
     document.getElementById('maint-date').value = e.date;
     document.getElementById('maint-service').value = e.service;
@@ -2726,7 +2923,7 @@ function clearForm(type) {
     document.getElementById('fuel-date').value = today;
     document.getElementById('fuel-full').checked = true;
   } else if (type === 'reimb') {
-    ['reimb-miles','reimb-value','reimb-received'].forEach(id => document.getElementById(id).value = '');
+    ['reimb-miles','reimb-value'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('reimb-date').value = today;
   } else if (type === 'def') {
     ['def-volume','def-odo','def-spend'].forEach(id => document.getElementById(id).value = '');
