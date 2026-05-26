@@ -312,6 +312,7 @@ try {
     if (s.lastOdo) settings.lastOdo = s.lastOdo;
     if (s.vehicleName) settings.vehicleName = s.vehicleName;
     if (s.appName) settings.appName = s.appName;
+    if (s.monthlyPayment) settings.monthlyPayment = s.monthlyPayment;
   }
 } catch(e) {}
 
@@ -350,7 +351,19 @@ const defEntries = entries.filter(e => e.type === 'def');
 const totalFuelSpend = fuelEntries.reduce((s,e) => s + e.spend, 0);
 const totalMaintSpend = maintEntries.reduce((s,e) => s + e.spend, 0);
 const totalDefSpend = defEntries.reduce((s,e) => s + e.spend, 0);
-const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend;
+
+const monthlyPayment = settings.monthlyPayment || 0;
+let paymentMonths = 0;
+if (monthlyPayment > 0 && entries.length > 0) {
+  const allDates = entries.map(e => e.date).filter(Boolean).sort();
+  if (allDates.length > 0) {
+    const d1 = new Date(allDates[0] + 'T00:00:00');
+    const d2 = new Date(allDates[allDates.length - 1] + 'T00:00:00');
+    paymentMonths = Math.max(1, (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()) + 1);
+  }
+}
+const totalPayments = monthlyPayment * paymentMonths;
+const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend + totalPayments;
 const totalGallons = fuelEntries.reduce((s,e) => s + (e.volume||0), 0);
 const totalMiles = fuelEntries.reduce((s,e) => s + (e.milesDriven||0), 0);
 const avgMpg = totalGallons > 0 ? totalMiles / totalGallons : 0;
@@ -368,9 +381,10 @@ if (entries.length === 0) {
 } else {
   document.getElementById('tab-overview').innerHTML = `
     <div class="kpi-row">
-      <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value orange">${$(totalSpend)}</div><div class="kpi-sub">Fuel + Maintenance + DEF</div></div>
+      <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value orange">${$(totalSpend)}</div><div class="kpi-sub">Fuel + Maint + DEF${totalPayments > 0 ? ' + Payments' : ''}</div></div>
       <div class="kpi-card"><div class="kpi-label">Total Reimbursed</div><div class="kpi-value green">${$(totalReimbVal)}</div><div class="kpi-sub">${$(reimbReceived)} received &bull; ${$(reimbPending)} pending</div></div>
       <div class="kpi-card"><div class="kpi-label">Net Position</div><div class="kpi-value ${netPosition >= 0 ? 'green' : 'red'}">${netPosition >= 0 ? '+' : ''}${$(netPosition)}</div><div class="kpi-sub">${netPosition >= 0 ? 'Reimbursements exceed spend' : 'Spend exceeds reimbursements'}</div></div>
+      ${monthlyPayment > 0 ? `<div class="kpi-card"><div class="kpi-label">Vehicle Payment</div><div class="kpi-value red">${$(totalPayments)}</div><div class="kpi-sub">${$(monthlyPayment)}/mo &times; ${paymentMonths} mo</div></div>` : ''}
       <div class="kpi-card"><div class="kpi-label">Miles Reimbursed</div><div class="kpi-value purple">${totalReimbMiles.toFixed(1)}</div><div class="kpi-sub">${totalReimbMiles > 0 ? 'Avg $'+(totalReimbVal/totalReimbMiles).toFixed(3)+'/mi rate' : ''}</div></div>
       <div class="kpi-card"><div class="kpi-label">Total Miles Driven</div><div class="kpi-value blue">${totalMiles.toFixed(1)}</div><div class="kpi-sub">${latestOdo > 0 ? 'Current odometer: ' + latestOdo.toLocaleString() : ''}</div></div>
       <div class="kpi-card"><div class="kpi-label">Cost Per Mile</div><div class="kpi-value purple">${costPerMile > 0 ? $(costPerMile) : '&mdash;'}</div><div class="kpi-sub">Fuel cost only</div></div>
@@ -384,7 +398,7 @@ if (entries.length === 0) {
 
   new Chart(document.getElementById('spendPieChart'), {
     type: 'doughnut',
-    data: { labels: ['Fuel', 'Maintenance', 'DEF'], datasets: [{ data: [totalFuelSpend || 0.01, totalMaintSpend || 0.01, totalDefSpend || 0.01], backgroundColor: ['#fb923c', '#a78bfa', '#22d3ee'], borderWidth: 0, hoverOffset: 8 }] },
+    data: { labels: ['Fuel', 'Maintenance', 'DEF'].concat(totalPayments > 0 ? ['Vehicle Payment'] : []), datasets: [{ data: [totalFuelSpend || 0.01, totalMaintSpend || 0.01, totalDefSpend || 0.01].concat(totalPayments > 0 ? [totalPayments] : []), backgroundColor: ['#fb923c', '#a78bfa', '#22d3ee'].concat(totalPayments > 0 ? ['#f87171'] : []), borderWidth: 0, hoverOffset: 8 }] },
     options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true, pointStyle: 'circle' } }, tooltip: { callbacks: { label: ctx => ctx.label + ': $' + (ctx.raw < 0.02 ? '0.00' : ctx.raw.toFixed(2)) } } } }
   });
 

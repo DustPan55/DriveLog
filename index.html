@@ -1143,6 +1143,11 @@
   </div>
 
   <div class="setting-row">
+    <label>Monthly Payment ($)</label>
+    <input type="number" id="setting-monthly-payment" placeholder="e.g. 750" step="0.01">
+  </div>
+
+  <div class="setting-row">
     <label>Last Odometer</label>
     <input type="number" id="setting-odo" placeholder="0" step="0.1">
   </div>
@@ -1184,6 +1189,11 @@
     <div class="form-group">
       <label>Fuel tank size (gallons)</label>
       <input type="number" id="welcome-tank" placeholder="e.g. 34" step="0.1" inputmode="decimal" style="font-size:16px;">
+    </div>
+
+    <div class="form-group">
+      <label>Monthly vehicle payment ($)</label>
+      <input type="number" id="welcome-monthly-payment" placeholder="e.g. 750" step="0.01" inputmode="decimal" style="font-size:16px;">
     </div>
 
     <div class="form-group">
@@ -1259,7 +1269,7 @@
 <script>
 // ═══════════ STATE ═══════════
 let entries = [];
-let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel', tankSize: 0 };
+let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel', tankSize: 0, monthlyPayment: 0 };
 
 // No seed data — users start fresh
 const SEED_ENTRIES = [];
@@ -1330,6 +1340,7 @@ try {
     if (s.appName) settings.appName = s.appName;
     if (s.fuelType) settings.fuelType = s.fuelType;
     if (s.tankSize) settings.tankSize = s.tankSize;
+    if (s.monthlyPayment) settings.monthlyPayment = s.monthlyPayment;
     if (s.setupComplete) settings.setupComplete = true;
   }
 } catch(e) {}
@@ -1481,6 +1492,7 @@ async function loadFromCloud() {
       document.getElementById('setting-vehicle').value = settings.vehicleName || '';
       document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
       document.getElementById('setting-tank').value = settings.tankSize || '';
+      document.getElementById('setting-monthly-payment').value = settings.monthlyPayment || '';
       updateHeader();
       updateDefVisibility();
     } else {
@@ -1538,6 +1550,8 @@ function saveSettings() {
   settings.fuelType = document.getElementById('setting-fuel-type').value;
   const tank = parseFloat(document.getElementById('setting-tank').value);
   settings.tankSize = tank > 0 ? tank : 0;
+  const mp = parseFloat(document.getElementById('setting-monthly-payment').value);
+  settings.monthlyPayment = mp > 0 ? mp : 0;
   saveSettings2();
   updateHeader();
   updateDefVisibility();
@@ -1572,6 +1586,8 @@ async function completeWelcome(skipAuth) {
   if (appName) settings.appName = appName;
   const wTank = parseFloat(document.getElementById('welcome-tank').value);
   if (wTank > 0) settings.tankSize = wTank;
+  const wMp = parseFloat(document.getElementById('welcome-monthly-payment').value);
+  if (wMp > 0) settings.monthlyPayment = wMp;
   settings.setupComplete = true;
   saveSettings2();
 
@@ -1591,6 +1607,7 @@ async function completeWelcome(skipAuth) {
   document.getElementById('setting-vehicle').value = settings.vehicleName || '';
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
   document.getElementById('setting-tank').value = settings.tankSize || '';
+  document.getElementById('setting-monthly-payment').value = settings.monthlyPayment || '';
 
   updateHeader();
   updateDefVisibility();
@@ -1607,6 +1624,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setting-vehicle').value = settings.vehicleName || '';
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
   document.getElementById('setting-tank').value = settings.tankSize || '';
+  document.getElementById('setting-monthly-payment').value = settings.monthlyPayment || '';
   updateHeader();
   updateDefVisibility();
 
@@ -2224,7 +2242,22 @@ function renderDashboard() {
   const totalFuelSpend = fuelEntries.reduce((s,e) => s + e.spend, 0);
   const totalMaintSpend = maintEntries.reduce((s,e) => s + e.spend, 0);
   const totalDefSpend = defEntries.reduce((s,e) => s + e.spend, 0);
-  const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend;
+
+  // Monthly vehicle payment calculation
+  const monthlyPayment = settings.monthlyPayment || 0;
+  let paymentMonths = 0;
+  if (monthlyPayment > 0) {
+    const allDates = entries.filter(e => inRange(e.date)).map(e => e.date).sort();
+    if (allDates.length > 0) {
+      const from = dashFilter.from || allDates[0];
+      const to = dashFilter.to || allDates[allDates.length - 1];
+      const d1 = new Date(from + 'T00:00:00');
+      const d2 = new Date(to + 'T00:00:00');
+      paymentMonths = Math.max(1, (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()) + 1);
+    }
+  }
+  const totalPayments = monthlyPayment * paymentMonths;
+  const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend + totalPayments;
   const totalGallons = fuelEntries.reduce((s,e) => s + (e.volume||0), 0);
 
   // Calculate miles from consecutive odometer readings
@@ -2321,9 +2354,10 @@ function renderDashboard() {
 
   // ── OVERVIEW ──
   document.getElementById('kpi-overview').innerHTML = `
-    <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value v-orange">$${totalSpend.toFixed(2)}</div><div class="kpi-sub">Fuel + Maint + DEF</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value v-orange">$${totalSpend.toFixed(2)}</div><div class="kpi-sub">Fuel + Maint + DEF${totalPayments > 0 ? ' + Payments' : ''}</div></div>
     <div class="kpi-card"><div class="kpi-label">Total Reimbursed</div><div class="kpi-value v-green">$${totalReimbVal.toFixed(2)}</div><div class="kpi-sub">$${reimbReceived.toFixed(2)} received · $${reimbPending.toFixed(2)} pending</div></div>
     <div class="kpi-card"><div class="kpi-label">Net Position</div><div class="kpi-value ${netPosition >= 0 ? 'v-green' : 'v-red'}">${netPosition >= 0 ? '+' : ''}$${netPosition.toFixed(2)}</div><div class="kpi-sub">${netPosition >= 0 ? 'Reimbursements exceed spend' : 'Spend exceeds reimbursements'}</div></div>
+    ${monthlyPayment > 0 ? `<div class="kpi-card"><div class="kpi-label">Vehicle Payment</div><div class="kpi-value v-red">$${totalPayments.toFixed(2)}</div><div class="kpi-sub">$${monthlyPayment.toFixed(2)}/mo × ${paymentMonths} mo</div></div>` : ''}
     <div class="kpi-card"><div class="kpi-label">Avg Fuel Economy</div><div class="kpi-value v-cyan">${avgMpg > 0 ? avgMpg.toFixed(1) + ' MPG' : '—'}</div><div class="kpi-sub">${totalMiles.toFixed(1)} mi / ${totalGallons.toFixed(2)} gal</div></div>
   `;
 
@@ -2332,8 +2366,8 @@ function renderDashboard() {
   dashCharts.spendPie = new Chart(spendCtx, {
     type: 'doughnut',
     data: {
-      labels: ['Fuel', 'Maintenance', 'DEF'],
-      datasets: [{ data: [totalFuelSpend || 0.01, totalMaintSpend || 0.01, totalDefSpend || 0.01], backgroundColor: ['#fb923c','#a78bfa','#22d3ee'], borderWidth: 0 }]
+      labels: ['Fuel', 'Maintenance', 'DEF'].concat(totalPayments > 0 ? ['Vehicle Payment'] : []),
+      datasets: [{ data: [totalFuelSpend || 0.01, totalMaintSpend || 0.01, totalDefSpend || 0.01].concat(totalPayments > 0 ? [totalPayments] : []), backgroundColor: ['#fb923c','#a78bfa','#22d3ee'].concat(totalPayments > 0 ? ['#f87171'] : []), borderWidth: 0 }]
     },
     options: { responsive: true, maintainAspectRatio: false, cutout: '60%',
       plugins: { legend: { position: 'bottom', labels: { color: '#8b8fa3', padding: 16, usePointStyle: true, pointStyle: 'circle' } },
