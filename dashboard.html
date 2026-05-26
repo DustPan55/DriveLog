@@ -371,7 +371,7 @@ if (paymentHist.length > 0 && entries.length > 0) {
       const ym = cursor.toISOString().split('T')[0].substring(0, 7);
       let rate = 0;
       for (const p of paymentHist) {
-        if (!p.startDate || p.startDate.substring(0, 7) <= ym) rate = p.amount;
+        if (p.startDate && p.startDate.substring(0, 7) <= ym) rate = p.amount;
       }
       totalPayments += rate;
       if (rate > 0) paymentMonths++;

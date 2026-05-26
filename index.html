@@ -2327,7 +2327,7 @@ function renderDashboard() {
         // Find the active rate: last entry with startDate <= this month
         let rate = 0;
         for (const p of paymentHist) {
-          if (!p.startDate || p.startDate.substring(0, 7) <= ym) rate = p.amount;
+          if (p.startDate && p.startDate.substring(0, 7) <= ym) rate = p.amount;
         }
         totalPayments += rate;
         if (rate > 0) paymentMonths++;
