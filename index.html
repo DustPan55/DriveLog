@@ -1479,9 +1479,16 @@ async function loadFromCloud() {
       .order('created_at', { ascending: false });
 
     if (cloudEntries && cloudEntries.length > 0) {
-      entries = cloudEntries.map(r => r.data);
+      // Merge: keep local entries not in cloud, add cloud entries
+      const localEntries = [...entries];
+      const cloudMapped = cloudEntries.map(r => r.data);
+      const cloudIds = new Set(cloudMapped.map(e => e.id).filter(Boolean));
+      const localOnly = localEntries.filter(e => e.id && !cloudIds.has(e.id));
+      entries = [...cloudMapped, ...localOnly];
       migrateReimbEntries();
       localStorage.setItem('vehicleEntries', JSON.stringify(entries));
+      // Push any local-only entries to cloud
+      if (localOnly.length > 0) await syncEntriesToCloud();
     } else if (entries.length > 0) {
       // Local has data but cloud is empty — push local up
       await syncEntriesToCloud();
