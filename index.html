@@ -1142,9 +1142,15 @@
     <input type="number" id="setting-tank" placeholder="e.g. 34" step="0.1">
   </div>
 
-  <div class="setting-row">
-    <label>Monthly Payment ($)</label>
-    <input type="number" id="setting-monthly-payment" placeholder="e.g. 750" step="0.01">
+  <div style="padding:14px 0;border-bottom:1px solid var(--border);">
+    <label style="font-size:14px;font-weight:500;display:block;margin-bottom:10px;">Monthly Vehicle Payment</label>
+    <div id="payment-history-list"></div>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <input type="number" id="setting-new-payment" placeholder="Amount" step="0.01" style="flex:1;padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;">
+      <input type="date" id="setting-new-payment-date" style="flex:1;padding:10px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;outline:none;">
+      <button onclick="addPaymentEntry()" style="padding:10px 14px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;">Add</button>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-top:4px;">Add your payment amount and the date it started. Add a new entry when your payment changes (e.g. refinance).</div>
   </div>
 
   <div class="setting-row">
@@ -1269,7 +1275,7 @@
 <script>
 // ═══════════ STATE ═══════════
 let entries = [];
-let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel', tankSize: 0, monthlyPayment: 0 };
+let settings = { url: '', lastOdo: 0, vehicleName: '', appName: '', fuelType: 'diesel', tankSize: 0, monthlyPayment: 0, paymentHistory: [] };
 
 // No seed data — users start fresh
 const SEED_ENTRIES = [];
@@ -1341,6 +1347,11 @@ try {
     if (s.fuelType) settings.fuelType = s.fuelType;
     if (s.tankSize) settings.tankSize = s.tankSize;
     if (s.monthlyPayment) settings.monthlyPayment = s.monthlyPayment;
+    if (Array.isArray(s.paymentHistory)) settings.paymentHistory = s.paymentHistory;
+    // Migrate: if old single monthlyPayment exists but no history, seed history
+    if (s.monthlyPayment && (!Array.isArray(s.paymentHistory) || s.paymentHistory.length === 0)) {
+      settings.paymentHistory = [{ amount: s.monthlyPayment, startDate: '' }];
+    }
     if (s.setupComplete) settings.setupComplete = true;
   }
 } catch(e) {}
@@ -1492,7 +1503,7 @@ async function loadFromCloud() {
       document.getElementById('setting-vehicle').value = settings.vehicleName || '';
       document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
       document.getElementById('setting-tank').value = settings.tankSize || '';
-      document.getElementById('setting-monthly-payment').value = settings.monthlyPayment || '';
+      renderPaymentHistory();
       updateHeader();
       updateDefVisibility();
     } else {
@@ -1550,12 +1561,62 @@ function saveSettings() {
   settings.fuelType = document.getElementById('setting-fuel-type').value;
   const tank = parseFloat(document.getElementById('setting-tank').value);
   settings.tankSize = tank > 0 ? tank : 0;
-  const mp = parseFloat(document.getElementById('setting-monthly-payment').value);
-  settings.monthlyPayment = mp > 0 ? mp : 0;
+  // monthlyPayment is now derived from paymentHistory (managed via add/remove)
+  if (settings.paymentHistory.length > 0) {
+    const latest = settings.paymentHistory.sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''))[settings.paymentHistory.length - 1];
+    settings.monthlyPayment = latest.amount;
+  } else {
+    settings.monthlyPayment = 0;
+  }
   saveSettings2();
   updateHeader();
   updateDefVisibility();
   showToast('Settings saved!');
+}
+
+function renderPaymentHistory() {
+  const list = document.getElementById('payment-history-list');
+  const sorted = [...(settings.paymentHistory || [])].sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+  if (sorted.length === 0) {
+    list.innerHTML = '<div style="font-size:12px;color:var(--muted);padding:6px 0;">No payments added yet.</div>';
+    return;
+  }
+  list.innerHTML = sorted.map((p, i) => {
+    const dateLabel = p.startDate ? new Date(p.startDate + 'T00:00:00').toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'Start date not set';
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:6px;">
+      <div><span style="font-weight:700;font-size:14px;color:var(--text);">$${p.amount.toFixed(2)}</span><span style="font-size:12px;color:var(--text2);margin-left:8px;">${dateLabel}</span></div>
+      <button onclick="removePaymentEntry(${i})" style="background:rgba(248,113,113,0.15);color:var(--red);border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;">Remove</button>
+    </div>`;
+  }).join('');
+}
+
+function addPaymentEntry() {
+  const amount = parseFloat(document.getElementById('setting-new-payment').value);
+  const startDate = document.getElementById('setting-new-payment-date').value;
+  if (!amount || amount <= 0) { showToast('Enter a payment amount', true); return; }
+  if (!startDate) { showToast('Enter a start date', true); return; }
+  if (!settings.paymentHistory) settings.paymentHistory = [];
+  settings.paymentHistory.push({ amount, startDate });
+  settings.monthlyPayment = amount;
+  document.getElementById('setting-new-payment').value = '';
+  document.getElementById('setting-new-payment-date').value = '';
+  saveSettings2();
+  renderPaymentHistory();
+  showToast('Payment added');
+}
+
+function removePaymentEntry(idx) {
+  const sorted = [...settings.paymentHistory].sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+  sorted.splice(idx, 1);
+  settings.paymentHistory = sorted;
+  if (sorted.length > 0) {
+    settings.monthlyPayment = sorted[sorted.length - 1].amount;
+  } else {
+    settings.monthlyPayment = 0;
+  }
+  saveSettings2();
+  renderPaymentHistory();
+  showToast('Payment removed');
 }
 
 function updateHeader() {
@@ -1587,7 +1648,10 @@ async function completeWelcome(skipAuth) {
   const wTank = parseFloat(document.getElementById('welcome-tank').value);
   if (wTank > 0) settings.tankSize = wTank;
   const wMp = parseFloat(document.getElementById('welcome-monthly-payment').value);
-  if (wMp > 0) settings.monthlyPayment = wMp;
+  if (wMp > 0) {
+    settings.monthlyPayment = wMp;
+    settings.paymentHistory = [{ amount: wMp, startDate: new Date().toISOString().split('T')[0] }];
+  }
   settings.setupComplete = true;
   saveSettings2();
 
@@ -1607,7 +1671,7 @@ async function completeWelcome(skipAuth) {
   document.getElementById('setting-vehicle').value = settings.vehicleName || '';
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
   document.getElementById('setting-tank').value = settings.tankSize || '';
-  document.getElementById('setting-monthly-payment').value = settings.monthlyPayment || '';
+  renderPaymentHistory();
 
   updateHeader();
   updateDefVisibility();
@@ -1624,7 +1688,7 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setting-vehicle').value = settings.vehicleName || '';
   document.getElementById('setting-fuel-type').value = settings.fuelType || 'diesel';
   document.getElementById('setting-tank').value = settings.tankSize || '';
-  document.getElementById('setting-monthly-payment').value = settings.monthlyPayment || '';
+  renderPaymentHistory();
   updateHeader();
   updateDefVisibility();
 
@@ -2243,20 +2307,34 @@ function renderDashboard() {
   const totalMaintSpend = maintEntries.reduce((s,e) => s + e.spend, 0);
   const totalDefSpend = defEntries.reduce((s,e) => s + e.spend, 0);
 
-  // Monthly vehicle payment calculation
-  const monthlyPayment = settings.monthlyPayment || 0;
+  // Monthly vehicle payment calculation using payment history
+  const paymentHist = (settings.paymentHistory || []).filter(p => p.amount > 0).sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+  let totalPayments = 0;
   let paymentMonths = 0;
-  if (monthlyPayment > 0) {
+  const monthlyPayment = settings.monthlyPayment || 0;
+  if (paymentHist.length > 0) {
     const allDates = entries.filter(e => inRange(e.date)).map(e => e.date).sort();
     if (allDates.length > 0) {
       const from = dashFilter.from || allDates[0];
       const to = dashFilter.to || allDates[allDates.length - 1];
       const d1 = new Date(from + 'T00:00:00');
       const d2 = new Date(to + 'T00:00:00');
-      paymentMonths = Math.max(1, (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()) + 1);
+      // Walk month by month and apply the correct rate
+      let cursor = new Date(d1.getFullYear(), d1.getMonth(), 1);
+      const end = new Date(d2.getFullYear(), d2.getMonth(), 1);
+      while (cursor <= end) {
+        const ym = cursor.toISOString().split('T')[0].substring(0, 7);
+        // Find the active rate: last entry with startDate <= this month
+        let rate = 0;
+        for (const p of paymentHist) {
+          if (!p.startDate || p.startDate.substring(0, 7) <= ym) rate = p.amount;
+        }
+        totalPayments += rate;
+        if (rate > 0) paymentMonths++;
+        cursor.setMonth(cursor.getMonth() + 1);
+      }
     }
   }
-  const totalPayments = monthlyPayment * paymentMonths;
   const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend + totalPayments;
   const totalGallons = fuelEntries.reduce((s,e) => s + (e.volume||0), 0);
 
@@ -2357,7 +2435,7 @@ function renderDashboard() {
     <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value v-orange">$${totalSpend.toFixed(2)}</div><div class="kpi-sub">Fuel + Maint + DEF${totalPayments > 0 ? ' + Payments' : ''}</div></div>
     <div class="kpi-card"><div class="kpi-label">Total Reimbursed</div><div class="kpi-value v-green">$${totalReimbVal.toFixed(2)}</div><div class="kpi-sub">$${reimbReceived.toFixed(2)} received · $${reimbPending.toFixed(2)} pending</div></div>
     <div class="kpi-card"><div class="kpi-label">Net Position</div><div class="kpi-value ${netPosition >= 0 ? 'v-green' : 'v-red'}">${netPosition >= 0 ? '+' : ''}$${netPosition.toFixed(2)}</div><div class="kpi-sub">${netPosition >= 0 ? 'Reimbursements exceed spend' : 'Spend exceeds reimbursements'}</div></div>
-    ${monthlyPayment > 0 ? `<div class="kpi-card"><div class="kpi-label">Vehicle Payment</div><div class="kpi-value v-red">$${totalPayments.toFixed(2)}</div><div class="kpi-sub">$${monthlyPayment.toFixed(2)}/mo × ${paymentMonths} mo</div></div>` : ''}
+    ${totalPayments > 0 ? `<div class="kpi-card"><div class="kpi-label">Vehicle Payment</div><div class="kpi-value v-red">$${totalPayments.toFixed(2)}</div><div class="kpi-sub">${paymentMonths} mo · Current: $${monthlyPayment.toFixed(2)}/mo</div></div>` : ''}
     <div class="kpi-card"><div class="kpi-label">Avg Fuel Economy</div><div class="kpi-value v-cyan">${avgMpg > 0 ? avgMpg.toFixed(1) + ' MPG' : '—'}</div><div class="kpi-sub">${totalMiles.toFixed(1)} mi / ${totalGallons.toFixed(2)} gal</div></div>
   `;
 

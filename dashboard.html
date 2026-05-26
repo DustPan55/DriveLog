@@ -313,6 +313,10 @@ try {
     if (s.vehicleName) settings.vehicleName = s.vehicleName;
     if (s.appName) settings.appName = s.appName;
     if (s.monthlyPayment) settings.monthlyPayment = s.monthlyPayment;
+    if (Array.isArray(s.paymentHistory)) settings.paymentHistory = s.paymentHistory;
+    if (s.monthlyPayment && (!Array.isArray(s.paymentHistory) || s.paymentHistory.length === 0)) {
+      settings.paymentHistory = [{ amount: s.monthlyPayment, startDate: '' }];
+    }
   }
 } catch(e) {}
 
@@ -352,17 +356,29 @@ const totalFuelSpend = fuelEntries.reduce((s,e) => s + e.spend, 0);
 const totalMaintSpend = maintEntries.reduce((s,e) => s + e.spend, 0);
 const totalDefSpend = defEntries.reduce((s,e) => s + e.spend, 0);
 
-const monthlyPayment = settings.monthlyPayment || 0;
+const paymentHist = (settings.paymentHistory || []).filter(p => p.amount > 0).sort((a,b) => (a.startDate||'').localeCompare(b.startDate||''));
+let totalPayments = 0;
 let paymentMonths = 0;
-if (monthlyPayment > 0 && entries.length > 0) {
+const monthlyPayment = settings.monthlyPayment || 0;
+if (paymentHist.length > 0 && entries.length > 0) {
   const allDates = entries.map(e => e.date).filter(Boolean).sort();
   if (allDates.length > 0) {
     const d1 = new Date(allDates[0] + 'T00:00:00');
     const d2 = new Date(allDates[allDates.length - 1] + 'T00:00:00');
-    paymentMonths = Math.max(1, (d2.getFullYear() - d1.getFullYear()) * 12 + (d2.getMonth() - d1.getMonth()) + 1);
+    let cursor = new Date(d1.getFullYear(), d1.getMonth(), 1);
+    const end = new Date(d2.getFullYear(), d2.getMonth(), 1);
+    while (cursor <= end) {
+      const ym = cursor.toISOString().split('T')[0].substring(0, 7);
+      let rate = 0;
+      for (const p of paymentHist) {
+        if (!p.startDate || p.startDate.substring(0, 7) <= ym) rate = p.amount;
+      }
+      totalPayments += rate;
+      if (rate > 0) paymentMonths++;
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
   }
 }
-const totalPayments = monthlyPayment * paymentMonths;
 const totalSpend = totalFuelSpend + totalMaintSpend + totalDefSpend + totalPayments;
 const totalGallons = fuelEntries.reduce((s,e) => s + (e.volume||0), 0);
 const totalMiles = fuelEntries.reduce((s,e) => s + (e.milesDriven||0), 0);
@@ -384,7 +400,7 @@ if (entries.length === 0) {
       <div class="kpi-card"><div class="kpi-label">Total Spend</div><div class="kpi-value orange">${$(totalSpend)}</div><div class="kpi-sub">Fuel + Maint + DEF${totalPayments > 0 ? ' + Payments' : ''}</div></div>
       <div class="kpi-card"><div class="kpi-label">Total Reimbursed</div><div class="kpi-value green">${$(totalReimbVal)}</div><div class="kpi-sub">${$(reimbReceived)} received &bull; ${$(reimbPending)} pending</div></div>
       <div class="kpi-card"><div class="kpi-label">Net Position</div><div class="kpi-value ${netPosition >= 0 ? 'green' : 'red'}">${netPosition >= 0 ? '+' : ''}${$(netPosition)}</div><div class="kpi-sub">${netPosition >= 0 ? 'Reimbursements exceed spend' : 'Spend exceeds reimbursements'}</div></div>
-      ${monthlyPayment > 0 ? `<div class="kpi-card"><div class="kpi-label">Vehicle Payment</div><div class="kpi-value red">${$(totalPayments)}</div><div class="kpi-sub">${$(monthlyPayment)}/mo &times; ${paymentMonths} mo</div></div>` : ''}
+      ${totalPayments > 0 ? `<div class="kpi-card"><div class="kpi-label">Vehicle Payment</div><div class="kpi-value red">${$(totalPayments)}</div><div class="kpi-sub">${paymentMonths} mo &bull; Current: ${$(monthlyPayment)}/mo</div></div>` : ''}
       <div class="kpi-card"><div class="kpi-label">Miles Reimbursed</div><div class="kpi-value purple">${totalReimbMiles.toFixed(1)}</div><div class="kpi-sub">${totalReimbMiles > 0 ? 'Avg $'+(totalReimbVal/totalReimbMiles).toFixed(3)+'/mi rate' : ''}</div></div>
       <div class="kpi-card"><div class="kpi-label">Total Miles Driven</div><div class="kpi-value blue">${totalMiles.toFixed(1)}</div><div class="kpi-sub">${latestOdo > 0 ? 'Current odometer: ' + latestOdo.toLocaleString() : ''}</div></div>
       <div class="kpi-card"><div class="kpi-label">Cost Per Mile</div><div class="kpi-value purple">${costPerMile > 0 ? $(costPerMile) : '&mdash;'}</div><div class="kpi-sub">Fuel cost only</div></div>
